@@ -1,26 +1,34 @@
 #!/usr/bin/sh
 usage() {
     cat <<EOF
-Usage: niriwindo.sh COMMAND [OPTIONS]... ARGUMENTS
-Manage Niri windows.
+Usage: $0 COMMAND [OPTIONS]... ARGUMENTS
+Manage niri windows.
 Commands:
-  ids [OPTIONS]...              Output IDs of windows matching criteria.
-  tile [OPTIONS]...             Grab all matching windows and tile them in an optimal grid layout.
-  windo [OPTIONS]... ACTION     Perform ACTION (a single string argument) on windows matching criteria.
+  ids [OPTIONS]...           Output IDs of windows matching criteria.
+  tile [OPTIONS]...          Grab all matching windows and tile them in an optimal grid layout.
+  windo [OPTIONS]... ACTION  Perform ACTION (a single string argument) on windows matching criteria.
+  wsprop INDEX PROPERTY      Output the PROPERTY of the workspace at INDEX.
+  focwsprop PROPERTY         Output the PROPERTY of the focused workspace.
+  spread                     Move each matching windows to its own workspace.
+  tile                       Pulls matching windows to focused workspace.
+  sedconf SED_EXPRESSION     Modify the niriush configuration file using SED_EXPRESSION.
 Options:
-  --filter JQ_FILTER       Apply a custom jq filter to select windows.
-  --appid APP_ID           Select windows by application ID.
-  --title TITLE            Select windows by title (substring match).
-  --workspace WORKSPACE_IDX Select windows by workspace index or 'focused' for the focused workspace.
+  --filter JQ_FILTER         Apply a custom jq filter to select windows.
+  --appid APP_ID             Select windows by application ID.
+  --title TITLE              Select windows by title (substring match).
+  --workspace WORKSPACE_IDX  Select windows by workspace index or 'focused' for the focused workspace.
+  --id-flag FLAG             Specify the flag to use for window IDs in 'windo' ACTION (default: --id).
+  --extra-args ARGS          Additional arguments to pass to the 'windo' ACTION.
+  --help, -h                 Show this help message and exit.
 EOF
     exit "$1"
 }
 
-get_focused_workspace_property() {
+focused_workspace_property() {
     niri msg --json workspaces | jq -r ".[] | select(.is_focused == true) | .$1"
 }
 
-get_workspace_property_by_idx() {
+workspace_property_by_idx() {
     niri msg --json workspaces | jq -r ".[] | select(.idx == $1) | .$2"
 }
 
@@ -46,9 +54,9 @@ window_ids() {
             --workspace)
                 shift
                 if [ "$1" = "focused" ]; then
-                    workspace_id=$(get_focused_workspace_property id)
+                    workspace_id=$(focused_workspace_property id)
                 else
-                    workspace_id=$(get_workspace_property_by_idx "$1" id)
+                    workspace_id=$(workspace_property_by_idx "$1" id)
                 fi
                 niri_filter="$niri_filter | select(.workspace_id == $workspace_id)"
                 shift
@@ -113,7 +121,7 @@ EOF
     read -r rows columns <<EOF
 $(optimal_grid_layout "$width" "$height" "$number_of_windows")
 EOF
-    current_workspace_idx=$(get_focused_workspace_property idx)
+    current_workspace_idx=$(focused_workspace_property idx)
     windo "$@" --extra-args '--focus false' --id-flag --window-id \
         "move-window-to-workspace $current_workspace_idx"
 }
@@ -125,7 +133,7 @@ spread() {
 }
 
 sedconf() {
-    sed -e "$@" "$XDG_CONFIG_HOME/niri/base.kdl" > "$XDG_CONFIG_HOME/niri/config.kdl"
+    sed -e "$@" "$XDG_CONFIG_HOME/niri/niriush.base.kdl" > "$XDG_CONFIG_HOME/niri/niriush.dynamic.kdl"
     niri msg action load-config-file
 }
 
@@ -154,6 +162,16 @@ niriush() {
         sedconf)
             shift
             sedconf "$@"
+            exit 0
+            ;;
+        wsprop)
+            shift
+            workspace_property_by_idx "$1" "$2"
+            exit 0
+            ;;
+        focwsprop)
+            shift
+            focused_workspace_property "$1"
             exit 0
             ;;
         --help|-h)
