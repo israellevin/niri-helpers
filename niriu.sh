@@ -170,6 +170,7 @@ fetch() {
         esac
     done
 
+    # shellcheck disable=SC2046,SC2086  # We want word splitting here.
     windows_to_fetch=$(window_ids $windo_ids_flags)
     number_of_windows=$(echo "$windows_to_fetch" | wc -l)
 
@@ -231,8 +232,18 @@ scatter() {
 }
 
 sedconf() {
-    sed -e "$@" "$XDG_CONFIG_HOME/niri/niriush.base.kdl" > "$XDG_CONFIG_HOME/niri/niriush.dynamic.kdl"
+    sed -ie "$@" "$XDG_CONFIG_HOME/niri/niriush.dynamic.kdl"
     niri msg action load-config-file
+}
+
+addconf() {
+    grep -q "$1" "$XDG_CONFIG_HOME/niri/niriush.dynamic.kdl" && return 1
+    sedconf "\$a $1"
+}
+
+rmconf() {
+    grep -q "$1" "$XDG_CONFIG_HOME/niri/niriush.dynamic.kdl" || return 1
+    sedconf "/$1/d"
 }
 
 niriush() {
@@ -249,13 +260,11 @@ niriush() {
             ;;
         addconf)
             shift
-            show_error addconf is not implemented yet
-            exit 0
+            addconf "$@"
             ;;
         rmconf)
             shift
-            show_error rmconf is not implemented yet
-            exit 0
+            rmconf "$@"
             ;;
         sedconf)
             shift
