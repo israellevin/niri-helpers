@@ -1,54 +1,84 @@
-#!/usr/bin/sh
+#!/usr/bin/bash
 usage() {
     cat <<EOF
 Usage: $0 COMMAND [OPTIONS]... ARGUMENTS
 Manage niri windows.
 Commands:
   ids [OPTIONS]...           Output IDs of windows matching criteria.
-  tile [OPTIONS]...          Grab all matching windows and tile them in an optimal grid layout.
   windo [OPTIONS]... ACTION  Perform ACTION (a single string argument) on windows matching criteria.
+  addconf STRING             Add STRING (if not found) to the dynamic niriush configuration file.
+  rmconf STRING              Remove STRING (if found) from the dynamic niriush configuration file.
+  sedconf SED_ARGS...        Modify the dynamic niriush configuration file using SED_ARGS.
+  fetch                      Pulls matching windows to focused workspace.
+  scatter                    Move each matching windows to its own workspace.
   wsprop INDEX PROPERTY      Output the PROPERTY of the workspace at INDEX.
   focwsprop PROPERTY         Output the PROPERTY of the focused workspace.
-  spread                     Move each matching windows to its own workspace.
-  tile                       Pulls matching windows to focused workspace.
-  sedconf SED_EXPRESSION     Modify the niriush configuration file using SED_EXPRESSION.
-Options:
+  winprop ID PROPERTY        Output the PROPERTY of the window with ID.
+  focwinprop PROPERTY        Output the PROPERTY of the focused window.
+Options for 'ids' and 'windo':
   --filter JQ_FILTER         Apply a custom jq filter to select windows.
-  --appid APP_ID             Select windows by application ID.
-  --title TITLE              Select windows by title (substring match).
+  --appid APP_ID             Select windows by application ID regex (case insensitive).
+  --title TITLE              Select windows by title regex (case insensitive).
   --workspace WORKSPACE_IDX  Select windows by workspace index or 'focused' for the focused workspace.
+Options for 'windo':
   --id-flag FLAG             Specify the flag to use for window IDs in 'windo' ACTION (default: --id).
   --extra-args ARGS          Additional arguments to pass to the 'windo' ACTION.
+Options for 'fetch':
+  --tile                     Tile fetched windows on the focused workspace after fetching (experimental).
+Options for 'scatter':
+  --direction DIR            Direction to scatter windows: 'down' (default) or 'up'
+General Options:
   --help, -h                 Show this help message and exit.
 EOF
     exit "$1"
 }
 
+get() {
+    local object_type="$1"
+    shift
+    local property="$1"
+    shift
+    local filter='.[]'
+    while [ $# -gt 0 ]; do
+        filter="$filter | select($1)"
+        shift
+    done
+    niri msg --json "$object_type" | jq -r "$filter | .$property"
+}
+
 focused_workspace_property() {
-    niri msg --json workspaces | jq -r ".[] | select(.is_focused == true) | .$1"
+    get workspaces "$1" '.is_focused == true'
 }
 
 workspace_property_by_idx() {
-    niri msg --json workspaces | jq -r ".[] | select(.idx == $1) | .$2"
+    get workspaces "$2" '.idx == '"$1"
+}
+
+focused_window_property() {
+    get windows "$1" '.is_focused == true'
+}
+
+window_property_by_id() {
+    get windows "$2" '.id == '"$1"
 }
 
 window_ids() {
-    niri_filter='.[]'
+    local filters=()
     while [ $# -gt 0 ]; do
         case "$1" in
             --filter)
                 shift
-                niri_filter="$niri_filter | select($1)"
+                filters+=("$1")
                 shift
                 ;;
             --appid)
                 shift
-                niri_filter=".[] | select(.app_id | contains(\"$1\"))"
+                filters+=('.app_id | test("'"$1"'"; "i")')
                 shift
                 ;;
             --title)
                 shift
-                niri_filter=".[] | select(.title | contains(\"$1\"))"
+                filters+=('.title | test("'"$1"'"; "i")')
                 shift
                 ;;
             --workspace)
@@ -58,7 +88,7 @@ window_ids() {
                 else
                     workspace_id=$(workspace_property_by_idx "$1" id)
                 fi
-                niri_filter="$niri_filter | select(.workspace_id == $workspace_id)"
+                filters+=('.workspace_id == '"$workspace_id")
                 shift
                 ;;
             *)
@@ -66,13 +96,13 @@ window_ids() {
                 ;;
         esac
     done
-    niri msg --json windows | jq -r "$niri_filter | .id"
+    get windows id "${filters[@]}"
 }
 
 windo() {
-    action=""
-    windo_ids_flags=""
-    id_flag="--id"
+    local action=""
+    local windo_ids_flags=""
+    local id_flag="--id"
     while [ $# -gt 0 ]; do
         case "$1" in
             --id-flag)
@@ -96,13 +126,16 @@ windo() {
         esac
     done
     # shellcheck disable=SC2046,SC2086  # We want word splitting here.
-    window_ids $windo_ids_flags | xargs -I{} niri msg action $action $extra_args "$id_flag" {}
+    window_ids $windo_ids_flags | xargs -I{} niri msg action $action $extra_args $id_flag {}
 }
 
 optimal_grid_layout() {
-    width=$1
-    height=$2
-    elements=$3
+    local width=$1
+    local height=$2
+    local elements=$3
+    local aspect_ratio
+    local rows
+    local columns
     aspect_ratio=$(echo "scale=2; $width / $height" | bc)
     rows=$(echo "scale=0; sqrt($elements * $aspect_ratio)/1" | bc)
     if [ "$rows" -eq 0 ]; then
@@ -112,24 +145,89 @@ optimal_grid_layout() {
     echo "$rows $columns"
 }
 
-tile() {
-    read -r width height number_of_windows <<EOF
-$(niri msg --json focused-output | jq -r '.logical | "\(.width) \(.height)"')
-EOF
-    windows_to_tile=$(window_ids "$@")
-    number_of_windows=$(echo "$windows_to_tile" | wc -l)
-    read -r rows columns <<EOF
-$(optimal_grid_layout "$width" "$height" "$number_of_windows")
-EOF
-    current_workspace_idx=$(focused_workspace_property idx)
-    windo "$@" --extra-args '--focus false' --id-flag --window-id \
-        "move-window-to-workspace $current_workspace_idx"
+fetch() {
+    local windows_to_fetch
+    local number_of_windows
+    local tile
+    local width
+    local height
+    local rows
+    local columns
+    local windo_ids_flags
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --tile)
+                shift
+                tile=true
+                ;;
+            --filter|--appid|--title|--workspace)
+                windo_ids_flags="$windo_ids_flags $1 $2"
+                shift
+                shift
+                ;;
+            *)
+                shift
+        esac
+    done
+
+    windows_to_fetch=$(window_ids $windo_ids_flags)
+    number_of_windows=$(echo "$windows_to_fetch" | wc -l)
+
+    if [ "$tile" ]; then
+        read -r width height < <( \
+            niri msg --json focused-output | jq -r '.logical | "\(.width) \(.height)"')
+        read -r rows columns < <(optimal_grid_layout "$width" "$height" "$number_of_windows")
+    fi
+
+    # Can't use `windo` here because workspace idx is relative and may change after moving each window.
+    for window_id in $windows_to_fetch; do
+        niri msg action \
+            move-window-to-workspace "$(focused_workspace_property idx)" \
+            --window-id "$window_id" --focus false
+    done
+    if [ "$tile" ]; then
+        local current_window_id
+        current_window_id=$(focused_window_property id)
+        niri msg action focus-column-first
+        for ((column = 0; column < columns; column++)); do
+            niri msg action consume-window-into-column
+            niri msg action consume-window-into-column
+            niri msg action focus-column-right
+        done
+        niri msg action focus-window --id "$current_window_id"
+        windo "$@" 'set-window-width 33%'
+    fi
 }
 
-spread() {
-    windo "$@" --extra-args '--focus false' --id-flag --window-id \
-        'move-window-to-workspace 255'
-    niri msg action focus-workspace-down
+scatter() {
+    local target_workspace_idx=0
+    local windo_ids_flags
+    local current_window_id
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --direction)
+                shift
+                if [ "$1" = "up" ]; then
+                    target_workspace_idx=0
+                elif [ "$1" = "down" ]; then
+                    target_workspace_idx=255
+                else
+                    show_error "Invalid direction: $1"
+                fi
+                ;;
+            --filter|--appid|--title|--workspace)
+                windo_ids_flags="$windo_ids_flags $1 $2"
+                shift
+                shift
+                ;;
+            *)
+                shift
+        esac
+    done
+    current_window_id=$(focused_window_property id)
+    windo "$@" --extra-args '--focus false' --id-flag '--window-id' \
+        "move-window-to-workspace $target_workspace_idx"
+    niri msg action focus-window --id "$current_window_id"
 }
 
 sedconf() {
@@ -149,19 +247,28 @@ niriush() {
             windo "$@"
             exit 0
             ;;
-        tile)
+        addconf)
             shift
-            tile "$@"
+            show_error addconf is not implemented yet
             exit 0
             ;;
-        spread)
+        rmconf)
             shift
-            spread "$@"
+            show_error rmconf is not implemented yet
             exit 0
             ;;
         sedconf)
             shift
             sedconf "$@"
+            exit 0
+            ;;
+        fetch)
+            shift
+            fetch "$@"
+            exit 0
+            ;;
+        scatter)
+            scatter "$@"
             exit 0
             ;;
         wsprop)
@@ -174,6 +281,16 @@ niriush() {
             focused_workspace_property "$1"
             exit 0
             ;;
+        winprop)
+            shift
+            window_property_by_id "$1" "$2"
+            exit 0
+            ;;
+        focwinprop)
+            shift
+            focused_window_property "$1"
+            exit 0
+            ;;
         --help|-h)
             usage 0
             ;;
@@ -184,4 +301,12 @@ niriush() {
     esac
 }
 
+show_error() {
+    local error_message="Error: ${BASH_SOURCE[0]} failed in line ${BASH_LINENO[0]}"
+    echo -e "$error_message" >&2
+    notify-send -a niriush -u critical "$error_message"
+    exit 1
+}
+trap show_error ERR
+set -E
 niriush "$@"
