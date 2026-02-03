@@ -6,29 +6,72 @@ Shell support to make life with niri even better
 
 - `Dockerfile`: Dockerfile for building niri (and xwayland-satellite) from source
 - `make.sh`: Build niri (and xwayland-satellite) from source in a docker container
-  - Supports `clean` (to invalidate the build cache) and `install`
-- `niriu.sh`: Script helper for niri management
-  - `addconf STRING`: Add STRING (if not found) to the dynamic niriush configuration file
-    - `niriu.sh addconf 'animations { on; }'
-  - `rmconf STRING`: Remove STRING (if found) from the dynamic niriush configuration file
-    - `niriu.sh rmconf 'animations { on; }'`
-  - `sedconf SED_ARGS...`: Modify the dynamic niriush configuration file using SED_ARGS
-    - `niriu.sh sedconf 's|^// animations|animations|'` - uncomment the animations line
-  - `resetconf`: Reset the dynamic niriush configuration file
-  - `windo` [OPTIONS]... ACTION: Perform a niri msg action on all matching windows
-    - `niriu.sh windo --filter '.pid == 1234' focus-window` - will focus the window with PID 1234
-    - `niriu.sh windo --appid firefox maximize-window-to-edges` - maximize all windows with "firefox" in their app_id (identical to `--filter '.app_id | test("firefox"; "i")'`)
-    - `niriu.sh windo --title "vi" unset-window-urgent` - will unset urgency for all windows with "vi" in their title (identical to `--filter '.title | test("vi"; "i")'`)
-    - `niriu.sh windo --workspace 3 close-window` - will close all windows in workspace index 3
-    - `niriu.sh windo --workspace focused toggle-window-rule-opacity` - will toggle opacity rule for all windows in the currently focused workspace
-    - `niriu.sh windo --output focused set-window-width "-20%"` - decrease width of all windows in the currently focused output (monitor) by 20%
-    - `niriu.sh windo --extra-args '--focus false' --id-flag '--window-id' move-window-to-workspace 2` - move all windows with the specified IDs to workspace 2 without focusing them (note the use of extra args and of `--id-flag` because the `move-window-to-workspace` action expects a `--window-id` flag instead of the usual `--id`)
-  - `fetch [OPTIONS]`: Pull matching windows to focused or specified workspace
-    - `niriu.sh fetch --title "chat"` - fetch all windows with "chat" in their title to the currently focused workspace
-    - `niriu.sh fetch --appid foot --target-workspace-idx 1 --tile` - fetch all windows with "foot" in their app_id to workspace index 1 and tile them there
-  - `scatter [OPTIONS]`: Move each matching window to its own workspace
-    - `niriu.sh scatter --title "code"` - scatter all windows with "code" in their title to their own workspaces
-    - `niriu.sh scatter --down --workspace focused` - scatter all windows in the currently focused workspace downwards to their own workspaces
+  - Supports `clean` (to invalidate the docker build cache) and `install`
+- `niriu.sh`: Script helper for niri window management
+
+## Usage
+
+```plaintext
+niriu.sh COMMAND [OPTIONS]... ARGUMENTS
+Manage niri windows.
+Commands:
+  addconf STRING              Add STRING (if not found) to the dynamic niriush configuration file.
+  rmconf STRING               Remove STRING (if found) from the dynamic niriush configuration file.
+  sedconf SED_ARGS...         Modify the dynamic niriush configuration file using SED_ARGS.
+  resetconf                   Reset the dynamic niriush configuration file to default state.
+  windo [OPTIONS]... ACTION   Perform ACTION on windows matching selection criteria.
+  fetch [OPTIONS]...          Pulls matching windows to focused or specified workspace.
+  scatter [OPTION]            Move each matching windows to its own workspace.
+  help                        Show this help message and exit.
+Options for window management (can be combined to refine selection, so always used in conjunction):
+  --filter JQ_FILTER          Apply a custom jq filter to select windows.
+  --appid APP_ID              Select windows by application ID regex (case insensitive).
+  --title TITLE               Select windows by title regex (case insensitive).
+  --workspace REFERENCE       Select windows by workspace index, name, or 'focused'.
+  --output REFERENCE          Select windows by output name or 'focused'.
+  --id-flag FLAG              Specify the flag to use for specifying window IDs in ACTION (default: --id).
+  --extra-args ARGS           Additional arguments to pass to ACTION.
+Options for 'fetch':
+  --target-workspace-idx IDX  Index of the workspace to fetch windows to (default: focused workspace).
+  --tile                      Tile fetched windows on the focused workspace after fetching (experimental).
+Option for 'scatter':
+  --down                      Direction to scatter windows, default is up
+General Options:
+  --help, -h                  Show this help message and exit.
+```
+
+## Examples
+
+Workspace management:
+
+```sh
+$ niriu.sh fetch --title "chat"         # Fetch all chat windows to focused workspace
+$ niriu.sh scatter --workspace focused  # Scatter all windows from focused workspace to separate workspaces
+$ niriu.sh fetch --workspace focused --appid foot --target-workspace-idx 2 --tile
+  # Move all windows with "foot" in their app_id to workspace index 2 and fit them in an optimal grid
+```
+
+Window management:
+
+```sh
+$ niriu.sh windo --appid firefox maximize-window-to-edges        # Maximize all firefox windows
+$ niriu.sh windo --workspace 3 close-window                      # Close all windows in workspace index 3
+$ niriu.sh windo --filter '.pid == 1234' focus-window            # Focus window with PID 1234
+$ niriu.sh windo --workspace focused toggle-window-rule-opacity  # Toggle opacity rule for entire workspace
+$ niriu.sh windo --output HDMI-1-0 set-window-width '-20%'       # Decrease width of all windows on a monitor
+$ niriu.sh windo --extra-args '--focus false' --id-flag '--window-id' move-window-to-workspace 2
+  # Move all windows to workspace 2 without focusing them (as an extra argument to the action)
+  # Note use of `--id-flag` because `move-window-to-workspace` expects a `--window-id` instead of the usual `--id`
+```
+
+Configuration manipulation:
+
+```sh
+$ niriu.sh addconf 'animations { on; }'  # Add a rule enabling animations to dynamic config
+$ niriu.sh rmconf 'animations { on; }'   # Remove that rule
+$ niriu.sh sedconf 's/on/off/'           # Change 'on' to 'off' in dynamic config
+$ niriu.sh resetconf                     # Remove all dynamic rules
+```
 
 ## Notes
 

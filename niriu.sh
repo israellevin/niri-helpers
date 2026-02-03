@@ -15,7 +15,7 @@ Commands:
   fetch [OPTIONS]...          Pulls matching windows to focused or specified workspace.
   scatter [OPTION]            Move each matching windows to its own workspace.
   help                        Show this help message and exit.
-Options for 'windo' (can be combined to refine selection, so always used in conjunction):
+Options for window management (can be combined to refine selection, so always used in conjunction):
   --filter JQ_FILTER          Apply a custom jq filter to select windows.
   --appid APP_ID              Select windows by application ID regex (case insensitive).
   --title TITLE               Select windows by title regex (case insensitive).
