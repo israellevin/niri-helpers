@@ -16,6 +16,6 @@ if [ "$1" == install ]; then
     exit 0
 fi
 
-docker cp niri-builder:/package ./artifacts
+docker cp niri-builder:/package ./package
 docker rm -f niri-builder
-echo Package built and copied to ./artifacts directory
+echo Package built and copied to ./package directory

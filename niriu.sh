@@ -5,79 +5,116 @@ DYNAMIC_NIRIUSH_CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/niri/niriush.kdl"
 usage() {
     cat <<EOF
 Usage: $0 COMMAND [OPTIONS]... ARGUMENTS
-Manage niri windows.
+Manage niri windows, workspaces, and configuration dynamically.
 Commands:
-  addconf STRING              Add STRING (if not found) to the dynamic niriush configuration file.
-  rmconf STRING               Remove STRING (if found) from the dynamic niriush configuration file.
-  sedconf SED_ARGS...         Modify the dynamic niriush configuration file using SED_ARGS.
-  resetconf                   Reset the dynamic niriush configuration file to default state.
-  windo [OPTIONS]... ACTION   Perform ACTION on windows matching selection criteria.
-  fetch [OPTIONS]...          Pulls matching windows to focused or specified workspace.
-  scatter [OPTION]            Move each matching windows to its own workspace.
-  help                        Show this help message and exit.
-Options for window management (can be combined to refine selection, so always used in conjunction):
-  --filter JQ_FILTER          Apply a custom jq filter to select windows.
-  --appid APP_ID              Select windows by application ID regex (case insensitive).
+  conf [OPTIONS]...           Manage dynamic niriush configuration
+  flock [OPTIONS]...          Arranges matching windows on a workspace/output
+  windo [OPTIONS]... ACTION   Perform ACTION on windows matching selection criteria
+  help                        Show this help message and exit
+Configuration manipulation options for 'config' (can be combined - the effects are applied in order):
+  --add LINE                  Add LINE (if not found) to the dynamic niriush configuration file
+  --rm LINE                   Remove LINE (if found) from the dynamic niriush configuration file
+  --toggle LINE               Toggle LINE in the dynamic niriush configuration file
+  --reset                     Reset the dynamic niriush configuration file to default state
+Window selection options for 'flock' and 'windo' (can be combined - windows must match all criteria):
+  --workspace REFERENCE       Select windows by workspace index, name, or 'focused'
+  --output REFERENCE          Select windows by output name or 'focused'
+  --app-id APP_ID             Select windows by application ID regex (case insensitive)
   --title TITLE               Select windows by title regex (case insensitive).
-  --workspace REFERENCE       Select windows by workspace index, name, or 'focused'.
-  --output REFERENCE          Select windows by output name or 'focused'.
-  --id-flag FLAG              Specify the flag to use for specifying window IDs in ACTION (default: --id).
-  --extra-args ARGS           Additional arguments to pass to ACTION.
-Options for 'fetch':
-  --target-workspace-idx IDX  Index of the workspace to fetch windows to (default: focused workspace).
-  --tile                      Tile fetched windows on the focused workspace after fetching (experimental).
-Option for 'scatter':
-  --down                      Direction to scatter windows, default is up
+  --filter JQ_FILTER          Select windows by custom jq filter
+Target selection options for 'flock' ('--to-workspace' doesn't make sense for 'up'/'down' arrangements):
+  --to-output OUTPUT          Name of output to move windows to (default is focused output)
+  --to-workspace REFERENCE    Index or name of workspace to move windows to (default is focused workspace)
+  --mode MODE                 Window arrangement: 'natural', 'up', 'down' and 'fit' (default is 'natural')
+Action command options for 'windo':
+  --extra-args ARGS           Additional arguments to pass to ACTION
+  --id-flag FLAG              Specify the flag to use for specifying window IDs in ACTION (default is --id)
 General Options:
-  --help, -h                  Show this help message and exit.
+  --help, -h                  Show this help message and exit
 EOF
 }
 
-# niriu.sh is called primarily with no terminal, so desktop notifications for errors.
+# niriu.sh is called primarily from key binds with no terminal, so desktop notifications for errors.
 error() {
-    local error_message="Error: ${BASH_SOURCE[0]} failed in line ${BASH_LINENO[0]}"
-    local error_line
-    error_line="${1:-"$(sed -n "${BASH_LINENO[0]}"p "${BASH_SOURCE[0]}")"}"
+    local message="$1"
+    local show_usage="$2"
+    local details
+    if [ -z "$message" ]; then
+        message="${BASH_SOURCE[0]} failed on line ${BASH_LINENO[0]}"
+        details=">>>$(head -n "${BASH_LINENO[0]}" "${BASH_SOURCE[0]}" | tail -n 1)"
+    fi
     if [ -t 2 ]; then
-        echo -e "$error_message\n$error_line" >&2
+        echo -e "niriu.sh error: $message\n" >&2
+        [ "$details" ] && echo -e "$details\n" >&2
+        [ "$show_usage" ] && usage >&2
     else
-        notify-send -a niriush -u critical "$error_message" "$error_line"
+        notify-send -a 'niriu.sh error' -u critical "$message" "$details"
     fi
     exit 1
 }
 trap error ERR
 set -E
 
-addconf() {
-    grep -Fq "$1" "$DYNAMIC_NIRIUSH_CONFIG_FILE" && return 0
-    echo "$1" >> "$DYNAMIC_NIRIUSH_CONFIG_FILE"
-    niri msg action load-config-file
-}
-
-rmconf() {
-    grep -Fq "$1" "$DYNAMIC_NIRIUSH_CONFIG_FILE" || return 0
-    sed -ie "/$1/d" "$DYNAMIC_NIRIUSH_CONFIG_FILE"
-    niri msg action load-config-file
-}
-
-sedconf() {
-    sed -ie "$@" "$DYNAMIC_NIRIUSH_CONFIG_FILE"
-    niri msg action load-config-file
-}
+# Configuration management.
 
 resetconf() {
     echo "// Dynamically generated by niriu.sh" > "$DYNAMIC_NIRIUSH_CONFIG_FILE"
-    niri msg action load-config-file
-    if ! grep -Fq "include \"$DYNAMIC_NIRIUSH_CONFIG_FILE\"" "$NIRI_CONFIG_FILE"; then
+}
+
+isconf() {
+    grep -q "^$1$" "$DYNAMIC_NIRIUSH_CONFIG_FILE"
+}
+
+addconf() {
+    isconf "$1" || echo "$1" >> "$DYNAMIC_NIRIUSH_CONFIG_FILE"
+}
+
+rmconf() {
+    isconf "$1" && {
+        local new_configuration
+        new_configuration="$(grep -v "$1" "$DYNAMIC_NIRIUSH_CONFIG_FILE")"
+        echo "$new_configuration" > "$DYNAMIC_NIRIUSH_CONFIG_FILE"
+    }
+}
+
+toggleconf() {
+    if isconf "$1"; then
+        rmconf "$1"
+    else
+        addconf "$1"
+    fi
+}
+
+check_configuration_files() {
+    if ! grep -q "^include \"$DYNAMIC_NIRIUSH_CONFIG_FILE\"$" "$NIRI_CONFIG_FILE"; then
         [ -t 0 ] || error "Please include $DYNAMIC_NIRIUSH_CONFIG_FILE in $NIRI_CONFIG_FILE"
         echo "$DYNAMIC_NIRIUSH_CONFIG_FILE is not included in $NIRI_CONFIG_FILE" >&2
         read -rp "Include it now? [y/N] " response
         [[ "$response" =~ ^[Yy]$ ]] || error "User declined to include dynamic config file"
+        resetconf
         echo "include \"$DYNAMIC_NIRIUSH_CONFIG_FILE\"" >> "$NIRI_CONFIG_FILE"
-        niri msg action load-config-file
+        niri validate || error "Failed to validate updated $NIRI_CONFIG_FILE, please fix manually"
     fi
 }
 
+configure() {
+    check_configuration_files
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --add) shift; addconf "$1";;
+            --rm) shift; rmconf "$1";;
+            --toggle) shift; toggleconf "$1";;
+            --reset) resetconf;;
+            *) error "Unknown configuration command: $1" usage;;
+        esac
+        shift
+    done
+    niri msg action load-config-file
+}
+
+# Window management.
+
+# Generic filtered property getter with `niri msg --json` and `jq`.
 get() {
     local object_type="$1"
     shift
@@ -91,7 +128,14 @@ get() {
     niri msg --json "$object_type" | jq -r "$filter | .$property"
 }
 
+# A specific getter for the currently focused output.
+# Why don't outputs have an is_focused property like workspaces and windows?
+focused_output() {
+    niri msg --json focused-output | jq -r '.name'
+}
+
 windo() {
+    # Remember to consume first arguments, so that `$@` contains only the action.
     local window_ids="$1"
     shift
     local window_id_flag="$1"
@@ -102,22 +146,29 @@ windo() {
     xargs -I{} niri msg action "$@" $extra_args "$window_id_flag" {} <<<"$window_ids"
 }
 
-fetch() {
+scatter() {
     local window_ids="$1"
-    local workspace_idx="$2"
-    local current_window_id
-    current_window_id=$(get windows id '.is_focused == true')
-    niri msg action focus-workspace "$workspace_idx"
-    # Can't use `windo` here because workspace idx is relative and may change after moving each window.
-    for window_id in $window_ids; do
-        local current_workspace_idx
-        current_workspace_idx="$(get workspaces idx '.is_focused == true')"
-        niri msg action move-window-to-workspace "$current_workspace_idx" --window-id "$window_id"
-    done
-    niri msg action focus-window --id "$current_window_id"
+    local to_output_name="$2"
+    local mode="$3"
+    local to_workspace_idx
+    [ "$mode" = down ] && to_workspace_idx=255 || to_workspace_idx=0
+    windo "$window_ids" '--id' '' move-window-to-monitor "$to_output_name"
+    windo "$window_ids" '--window-id' '--focus false' move-window-to-workspace "$to_workspace_idx"
 }
 
-optimal_grid_layout() {
+fetch() {
+    local window_ids="$1"
+
+    # Can't use `windo` here because workspace idx is relative and may change after moving each window.
+    # Instead, we get the current workspace updated idx before each move.
+    for window_id in $window_ids; do
+        niri msg action move-window-to-monitor "$(focused_output)" --id "$window_id"
+        niri msg action move-window-to-workspace "$(get workspaces name '.is_focused == true')" \
+            --window-id "$window_id" --focus false
+    done
+}
+
+calculate_grid_layout() {
     local width=$1
     local height=$2
     local elements=$3
@@ -126,30 +177,21 @@ optimal_grid_layout() {
     local columns
     aspect_ratio=$(bc <<< "scale=2; $width / $height")
     rows=$(bc <<< "scale=0; sqrt($elements * $aspect_ratio)/1")
-    if [ "$rows" -eq 0 ]; then
-        rows=1
-    fi
+    [ "$rows" -eq 0 ] && rows=1
     columns=$(bc <<< "($elements + $rows - 1) / $rows")
     echo "$rows $columns"
 }
 
-tile() {
+fit() {
     local window_ids="$1"
-    local workspace_idx="$2"
     local width
     local height
     local rows
     local columns
-    read -r width height < <( \
-        niri msg --json focused-output | jq -r '.logical | "\(.width) \(.height)"')
-    read -r rows columns < <(optimal_grid_layout "$width" "$height" "$(wc -l <<<"$window_ids")")
-
-    local current_window_id
-    current_window_id=$(get windows id '.is_focused == true')
-    niri msg action focus-workspace "$workspace_idx"
+    read -r width height < <(get outputs 'logical | "\(.width) \(.height)"')
+    read -r rows columns < <(calculate_grid_layout "$width" "$height" "$(wc -l <<<"$window_ids")")
     niri msg action focus-column-first
     for ((column = 0; column < columns; column++)); do
-        echo "Column $column/$columns"
         for ((row = 1; row < rows; row++)); do
             niri msg action consume-window-into-column
         done
@@ -157,44 +199,57 @@ tile() {
     done
     cell_width=$((width / columns))
     windo "$window_ids" '--id' '' set-window-width "$cell_width"
-    niri msg action focus-window --id "$current_window_id"
+    niri msg action focus-column-first
 }
 
-scatter() {
+flock() {
     local window_ids="$1"
-    local target_workspace_idx="${2:-0}"
-    local current_window_id
-    current_window_id=$(get windows id '.is_focused == true')
-    windo "$window_ids" '--window-id' '--focus false' move-window-to-workspace "$target_workspace_idx"
-    niri msg action focus-window --id "$current_window_id"
+    local to_output_name="$2"
+    local to_workspace_reference="$3"
+    local mode="${4:-natural}"
+
+    # Remember focused window (if any) before moving windows to restore focus later.
+    local to_window_id
+    to_window_id="$(get windows id '.is_focused == true')"
+    case "$mode" in
+        up|down)
+            [ "$to_workspace_reference" ] && error "--to-workspace cannot be used with $mode"
+            scatter "$window_ids" "$to_output_name" "$mode"
+            ;;
+        natural|fit)
+            [ "$to_workspace_reference" ] || to_workspace_reference="$(get workspaces name '.is_focused == true')"
+
+            # If tiling is requested scatter windows first to break up existing stacks.
+            [ "$mode" = fit ] && scatter "$window_ids" "$to_output_name" up
+
+            niri msg action focus-monitor "$to_output_name"
+            niri msg action focus-workspace "$to_workspace_reference"
+
+            fetch "$window_ids"
+            [ "$mode" = fit ] && fit "$window_ids"
+            ;;
+    esac
+    [ "$to_window_id" ] && niri msg action focus-window --id "$to_window_id" || true
 }
+
+# Main entry point.
 
 niriush() {
     local command_name="$1"
+    [ "$command_name" ] || error "No command specified" usage
     shift
     case "$command_name" in
-        ''|help|--help|-h) usage;;
-        resetconf)
-            [ $# -gt 0 ] && error "$(usage)"
-            resetconf
-            exit
-            ;;
-        addconf|rmconf)
-            [ $# -gt 1 ] && error "$(usage)"
-            ;&
-        sedconf)
-            [ $# -lt 1 ] && error "$(usage)"
-            $command_name "$@"
-            exit
-            ;;
-        windo|fetch|scatter)
+        help|--help|-h) usage && exit;;
+        conf) configure "$@"; exit;;
+        flock|windo)
             local window_ids
             local action=()
             local filters=()
             local windo_id_flag=--id
             local windo_extra_args
-            local target_workspace_idx
-            local tile
+            local to_output_name
+            local to_workspace_reference
+            local mode
             while [ $# -gt 0 ]; do
                 case "$1" in
                     --filter)
@@ -202,7 +257,7 @@ niriush() {
                         filters+=("$1")
                         shift
                         ;;
-                    --appid)
+                    --app-id)
                         shift
                         filters+=(".app_id | test(\"$1\"; \"i\")")
                         shift
@@ -218,7 +273,12 @@ niriush() {
                         if [ "$1" = "focused" ]; then
                             workspace_id=$(get workspaces id '.is_focused == true')
                         else
-                            workspace_id=$(get workspaces id ".idx == $1")
+                            if [ "$1" -eq "$1" ] 2>/dev/null; then
+                                workspace_id=$(get workspaces id ".idx == $1")
+                            else
+                                workspace_id=$(get workspaces id ".name == \"$1\"")
+                                [ "$workspace_id" ] || return 0  # No such workspace, so no windows.
+                            fi
                         fi
                         filters+=(".workspace_id == $workspace_id")
                         shift
@@ -227,72 +287,70 @@ niriush() {
                         shift
                         local output_name
                         if [ "$1" = "focused" ]; then
-                            output_name=$(niri msg --json focused-output | jq -r '.name')
+                            output_name=$(focused_output)
                         else
                             output_name="$1"
                         fi
                         shift
                         local output_workspace_ids
                         output_workspace_ids="$(get workspaces id ".output == \"$output_name\"")"
-                        if [ -z "$output_workspace_ids" ]; then
-                            # No workspaces on that output, so no windows.
-                            filters+=('false')
-                        fi
-                        for id in $output_workspace_ids; do
-                            fiters+=(".workspace_id == $id")
-                        done
+                        output_workspace_ids="$(tr '\n' ',' <<<"$output_workspace_ids")"
+                        output_workspace_ids="(${output_workspace_ids%,})"
+                        [ "$output_workspace_ids" ] || return 0  # No workspaces on that output, so no windows.
+                        filters+=(".workspace_id | IN($output_workspace_ids)")
+                        ;;
+                    --to-output)
+                        [ "$command_name" != "flock" ] && error "$command_name does not support $1" usage
+                        shift
+                        to_output_name="$1"
+                        shift
+                        ;;
+                    --to-workspace)
+                        [ "$command_name" != "flock" ] && error "$command_name does not support $1" usage
+                        shift
+                        to_workspace_reference="$1"
+                        shift
+                        ;;
+                    --mode)
+                        [ "$command_name" != "flock" ] && error "$command_name does not support $1" usage
+                        [ "$mode" ] && error "Multiple arrangements specified" usage
+                        shift
+                        case "$1" in
+                            natural|up|down|fit) mode="$1";;
+                            *) error "Unknown arrangement mode: $1" usage;;
+                        esac
+                        shift
                         ;;
                     --id-flag)
-                        [ "$command_name" != "windo" ] && error "$(usage)"
+                        [ "$command_name" != "windo" ] && error "$command_name does not support $1" usage
                         shift
                         windo_id_flag="$1"
                         shift
                         ;;
                     --extra-args)
-                        [ "$command_name" != "windo" ] && error "$(usage)"
+                        [ "$command_name" != "windo" ] && error "$command_name does not support $1" usage
                         shift
                         windo_extra_args="$1"
                         shift
                         ;;
-                    --down)
-                        [ "$command_name" != "scatter" ] && error "$(usage)"
-                        target_workspace_idx=255
-                        shift
-                        ;;
-                    --target-workspace-idx)
-                        [ "$command_name" != "fetch" ] && error "$(usage)"
-                        shift
-                        target_workspace_idx="$1"
-                        shift
-                        ;;
-                    --tile)
-                        [ "$command_name" != "fetch" ] && error "$(usage)"
-                        tile=true
-                        shift
-                        ;;
                     *)
-                        [ "$command_name" != "windo" ] && error "$(usage)"
+                        [ "$command_name" != "windo" ] && error "unknown argument for $command_name: $1" usage
                         action+=("$1")
                         shift
                         ;;
                 esac
             done
+
             window_ids="$(get windows id "${filters[@]}")"
-            case $command_name in
-                windo) windo "$window_ids" "$windo_id_flag" "$windo_extra_args" "${action[@]}";;
-                scatter) scatter "$window_ids" "$target_workspace_idx";;
-                fetch)
-                    [ "$target_workspace_idx" ] || \
-                        target_workspace_idx=$(get workspaces idx '.is_focused == true')
-                    scatter "$window_ids"
-                    fetch "$window_ids" "$target_workspace_idx"
-                    if [ "$tile" = true ]; then
-                        tile "$window_ids" "$target_workspace_idx"
-                    fi
-                    ;;
-            esac
+
+            if [ "$command_name" = windo ]; then
+                windo "$window_ids" "$windo_id_flag" "$windo_extra_args" "${action[@]}"
+            elif [ "$command_name" = flock ]; then
+                [ "$to_output_name" ] || to_output_name="$(focused_output)"
+                flock "$window_ids" "$to_output_name" "$to_workspace_reference" "$mode"
+            fi
         ;;
-        *) echo "Unknown command: $command_name"; error "$(usage)";;
+        *) error "Unknown command: $command_name" usage;;
     esac
 }
 
