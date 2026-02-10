@@ -10,7 +10,7 @@ struct Listener {
 
 fn parse_args(args: &[String]) -> anyhow::Result<Vec<Listener>> {
     if args.len() < 2 {
-        anyhow::bail!("usage: niri-events REGEX COMMAND [REGEX COMMAND ...]");
+        anyhow::bail!("usage: ned REGEX COMMAND [REGEX COMMAND ...]");
     }
     if args.len() % 2 != 0 {
         anyhow::bail!("Expected pairs of REGEX COMMAND, got odd number of arguments");
