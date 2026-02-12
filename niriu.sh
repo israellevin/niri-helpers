@@ -277,9 +277,9 @@ niriush() {
                                 workspace_id=$(get workspaces id ".idx == $1")
                             else
                                 workspace_id=$(get workspaces id ".name == \"$1\"")
-                                [ "$workspace_id" ] || return 0  # No such workspace, so no windows.
                             fi
                         fi
+                        [ "$workspace_id" ] || return 0  # No such workspace, so no windows.
                         filters+=(".workspace_id == $workspace_id")
                         shift
                         ;;
@@ -294,9 +294,9 @@ niriush() {
                         shift
                         local output_workspace_ids
                         output_workspace_ids="$(get workspaces id ".output == \"$output_name\"")"
+                        [ "$output_workspace_ids" ] || return 0  # No workspaces on that output, so no windows.
                         output_workspace_ids="$(tr '\n' ',' <<<"$output_workspace_ids")"
                         output_workspace_ids="(${output_workspace_ids%,})"
-                        [ "$output_workspace_ids" ] || return 0  # No workspaces on that output, so no windows.
                         filters+=(".workspace_id | IN($output_workspace_ids)")
                         ;;
                     --to-output)
