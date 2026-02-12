@@ -57,7 +57,6 @@ error() {
     exit 1
 }
 trap error ERR
-set -E
 
 # Configuration management.
 
@@ -74,10 +73,10 @@ addconf() {
 }
 
 rmconf() {
-    isconf "$1" && {
+    if isconf "$1"; then
         grep -vxF "$1" "$DYNAMIC_NIRIUSH_CONFIG_FILE" > "$DYNAMIC_NIRIUSH_CONFIG_FILE.tmp"
         mv "$DYNAMIC_NIRIUSH_CONFIG_FILE.tmp" "$DYNAMIC_NIRIUSH_CONFIG_FILE"
-    }
+    fi
 }
 
 toggleconf() {
@@ -89,7 +88,7 @@ toggleconf() {
 }
 
 check_configuration_files() {
-    if ! grep -q "^include \"$DYNAMIC_NIRIUSH_CONFIG_FILE\"$" "$NIRI_CONFIG_FILE"; then
+    if ! grep -qxF "include \"$DYNAMIC_NIRIUSH_CONFIG_FILE\"" "$NIRI_CONFIG_FILE"; then
         [ -t 0 ] || error "Please include $DYNAMIC_NIRIUSH_CONFIG_FILE in $NIRI_CONFIG_FILE"
         echo "$DYNAMIC_NIRIUSH_CONFIG_FILE is not included in $NIRI_CONFIG_FILE" >&2
         read -rp "Include it now? [y/N] " response
@@ -191,8 +190,17 @@ fit() {
     local height
     local rows
     local columns
+    if [ "$(wc -w <<<"$window_ids")" = 1 ]; then
+        niri msg action focus-window --id "$window_ids"
+        niri msg action set-window-width '100%' --id "$window_ids"
+        niri msg action set-window-height '100%' --id "$window_ids"
+        return 0
+    fi
+
     read -r width height < <(focused_output 'logical | "\(.width) \(.height)"')
-    read -r rows columns < <(calculate_grid_layout "$width" "$height" "$(grep -c . <<<"$window_ids")")
+    read -r rows columns < <(calculate_grid_layout "$width" "$height" "$(wc -w <<<"$window_ids")")
+
+    windo "$window_ids" '--id' '' move-window-to-tiling
     niri msg action focus-column-first
     for ((column = 0; column < columns; column++)); do
         for ((row = 1; row < rows; row++)); do
@@ -363,6 +371,7 @@ niriush() {
             done
 
             window_ids="$(get windows id "${filters[@]}")"
+            [ "$window_ids" ] || exit 0
 
             if [ "$command_name" = windo ]; then
                 windo "$window_ids" "$windo_id_flag" "$windo_extra_args" "${action[@]}"
@@ -375,4 +384,9 @@ niriush() {
     esac
 }
 
-niriush "$@"
+# Only run the script if it's being executed, to allow sourcing.
+# shellcheck disable=SC2317  # This makes semantic sense if you consider sourcing vs executing.
+if ! return 0 2>/dev/null; then
+    set -Eeo pipefail
+    niriush "$@"
+fi

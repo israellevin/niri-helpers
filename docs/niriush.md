@@ -17,7 +17,7 @@ bash niriu.sh help
 
 All of the niriu.sh commands can be launched from key bindings defined with `spawn-sh`, and script errors will be sent as notifications when there is no terminal connected to standard error.
 
-### Flock - Workspace Management
+### flock - Workspace Management
 
 If you have a bunch of windows open on a bunch of workspaces and maybe even a bunch of outputs, you can run the following command to bring them all to your currently focused workspace:
 
@@ -59,7 +59,7 @@ While the following will tile all of the windows running foot with "vim" in the 
 niriu.sh flock --app-id foot --title vim --to-output HDMI-A-1 --to-workspace editors --mode fit
 ```
 
-### Windo - Mass Window Actions
+### windo - Mass Window Actions
 
 The same window matching criteria can be used to perform actions on the matching windows (for a list of available actions, run `niri msg action --help`):
 
@@ -77,7 +77,7 @@ If you need to pass extra arguments to the action, you can use the `--extra-args
 niriu.sh windo --extra-args '--focus false' --id-flag '--window-id' move-window-to-workspace 2
 ```
 
-### Conf - Dynamic Configuration Management
+### conf - Dynamic Configuration Management
 
 To avoid accidentally messing up your main configuration file, niriu.sh operates on a separate dynamic configuration file which needs to be included in the main niri configuration file (either see [Installation](#installation) for instructions or simply answer yes when running the command and allow the script to do it for you.
 
