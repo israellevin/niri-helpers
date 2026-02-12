@@ -125,7 +125,7 @@ Commands:
   flock [OPTIONS]...          Arranges matching windows on a workspace/output
   windo [OPTIONS]... ACTION   Perform ACTION on windows matching selection criteria
   help                        Show this help message and exit
-Configuration manipulation options for 'conf' (can be combined - the effects are applied in order):
+Configuration manipulation options for 'config' (can be combined - the effects are applied in order):
   --add LINE                  Add LINE (if not found) to the dynamic niriush configuration file
   --rm LINE                   Remove LINE (if found) from the dynamic niriush configuration file
   --toggle LINE               Toggle LINE in the dynamic niriush configuration file
@@ -135,11 +135,15 @@ Window selection options for 'flock' and 'windo' (can be combined - windows must
   --output REFERENCE          Select windows by output name or 'focused'
   --app-id APP_ID             Select windows by application ID regex (case insensitive)
   --title TITLE               Select windows by title regex (case insensitive).
-  --filter JQ_FILTER          Select windows by custom jq filter
+  --floating                  Select only floating windows (ignore tiled)
+  --tiled                     Select only tiled windows (ignore floating)
+  --focused                   Select only focused windows (ignore unfocused)
+  --unfocused                 Select only unfocused windows (ignore focused)
+  --filter JQ_FILTER          Select windows by custom jq filter (passed directly and entirely to 'jq')
 Target selection options for 'flock' ('--to-workspace' doesn't make sense for 'up'/'down' arrangements):
   --to-output OUTPUT          Name of output to move windows to (default is focused output)
   --to-workspace REFERENCE    Index or name of workspace to move windows to (default is focused workspace)
-  --mode MODE                 Window arrangement: 'natural', 'up', 'down' and 'tile' (default is 'natural')
+  --mode MODE                 Window arrangement: 'natural', 'up', 'down' and 'fit' (default is 'natural')
 Action command options for 'windo':
   --extra-args ARGS           Additional arguments to pass to ACTION
   --id-flag FLAG              Specify the flag to use for specifying window IDs in ACTION (default is --id)

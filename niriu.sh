@@ -21,7 +21,11 @@ Window selection options for 'flock' and 'windo' (can be combined - windows must
   --output REFERENCE          Select windows by output name or 'focused'
   --app-id APP_ID             Select windows by application ID regex (case insensitive)
   --title TITLE               Select windows by title regex (case insensitive).
-  --filter JQ_FILTER          Select windows by custom jq filter
+  --floating                  Select only floating windows (ignore tiled)
+  --tiled                     Select only tiled windows (ignore floating)
+  --focused                   Select only focused windows (ignore unfocused)
+  --unfocused                 Select only unfocused windows (ignore focused)
+  --filter JQ_FILTER          Select windows by custom jq filter (passed directly and entirely to 'jq')
 Target selection options for 'flock' ('--to-workspace' doesn't make sense for 'up'/'down' arrangements):
   --to-output OUTPUT          Name of output to move windows to (default is focused output)
   --to-workspace REFERENCE    Index or name of workspace to move windows to (default is focused workspace)
@@ -62,7 +66,7 @@ resetconf() {
 }
 
 isconf() {
-    grep -q "^$1$" "$DYNAMIC_NIRIUSH_CONFIG_FILE"
+    grep -qxF "$1" "$DYNAMIC_NIRIUSH_CONFIG_FILE"
 }
 
 addconf() {
@@ -71,9 +75,8 @@ addconf() {
 
 rmconf() {
     isconf "$1" && {
-        local new_configuration
-        new_configuration="$(grep -v "$1" "$DYNAMIC_NIRIUSH_CONFIG_FILE")"
-        echo "$new_configuration" > "$DYNAMIC_NIRIUSH_CONFIG_FILE"
+        grep -vxF "$1" "$DYNAMIC_NIRIUSH_CONFIG_FILE" > "$DYNAMIC_NIRIUSH_CONFIG_FILE.tmp"
+        mv "$DYNAMIC_NIRIUSH_CONFIG_FILE.tmp" "$DYNAMIC_NIRIUSH_CONFIG_FILE"
     }
 }
 
@@ -131,7 +134,7 @@ get() {
 # A specific getter for the currently focused output.
 # Why don't outputs have an is_focused property like workspaces and windows?
 focused_output() {
-    niri msg --json focused-output | jq -r '.name'
+    niri msg --json focused-output | jq -r ".${1:-name}"
 }
 
 windo() {
@@ -188,8 +191,8 @@ fit() {
     local height
     local rows
     local columns
-    read -r width height < <(get outputs 'logical | "\(.width) \(.height)"')
-    read -r rows columns < <(calculate_grid_layout "$width" "$height" "$(wc -l <<<"$window_ids")")
+    read -r width height < <(focused_output 'logical | "\(.width) \(.height)"')
+    read -r rows columns < <(calculate_grid_layout "$width" "$height" "$(grep -c . <<<"$window_ids")")
     niri msg action focus-column-first
     for ((column = 0; column < columns; column++)); do
         for ((row = 1; row < rows; row++)); do
@@ -219,17 +222,19 @@ flock() {
         natural|fit)
             [ "$to_workspace_reference" ] || to_workspace_reference="$(get workspaces name '.is_focused == true')"
 
-            # If tiling is requested scatter windows first to break up existing stacks.
-            [ "$mode" = fit ] && scatter "$window_ids" "$to_output_name" up
-
             niri msg action focus-monitor "$to_output_name"
             niri msg action focus-workspace "$to_workspace_reference"
+
+            # Scatter windows before fetch to break up existing stacks.
+            scatter "$window_ids" "$to_output_name" up
 
             fetch "$window_ids"
             [ "$mode" = fit ] && fit "$window_ids"
             ;;
     esac
-    [ "$to_window_id" ] && niri msg action focus-window --id "$to_window_id" || true
+    if [ "$to_window_id" ]; then
+        niri msg action focus-window --id "$to_window_id"
+    fi
 }
 
 # Main entry point.
@@ -252,21 +257,6 @@ niriush() {
             local mode
             while [ $# -gt 0 ]; do
                 case "$1" in
-                    --filter)
-                        shift
-                        filters+=("$1")
-                        shift
-                        ;;
-                    --app-id)
-                        shift
-                        filters+=(".app_id | test(\"$1\"; \"i\")")
-                        shift
-                        ;;
-                    --title)
-                        shift
-                        filters+=(".title | test(\"$1\"; \"i\")")
-                        shift
-                        ;;
                     --workspace)
                         shift
                         local workspace_id
@@ -298,6 +288,37 @@ niriush() {
                         output_workspace_ids="$(tr '\n' ',' <<<"$output_workspace_ids")"
                         output_workspace_ids="(${output_workspace_ids%,})"
                         filters+=(".workspace_id | IN($output_workspace_ids)")
+                        ;;
+                    --app-id)
+                        shift
+                        filters+=(".app_id | test(\"$1\"; \"i\")")
+                        shift
+                        ;;
+                    --title)
+                        shift
+                        filters+=(".title | test(\"$1\"; \"i\")")
+                        shift
+                        ;;
+                    --floating)
+                        filters+=(".is_floating == true")
+                        shift
+                        ;;
+                    --tiled)
+                        filters+=(".is_floating == false")
+                        shift
+                        ;;
+                    --focused)
+                        filters+=(".is_focused == true")
+                        shift
+                        ;;
+                    --unfocused)
+                        filters+=(".is_focused == false")
+                        shift
+                        ;;
+                    --filter)
+                        shift
+                        filters+=("$1")
+                        shift
                         ;;
                     --to-output)
                         [ "$command_name" != "flock" ] && error "$command_name does not support $1" usage

@@ -26,7 +26,7 @@ The command can be a comma delimited list of arguments (e.g. `/usr/bin/jq,-r,.Wi
 To try it out, create the following script to handle `WindowClosed` events and save it under the succinct name `switch_window_if_workspace_empty.sh`:
 
 ```sh
-#!/bin/bash
+#!/bin/sh
 get() {
     niri msg --json "$1" | jq -r "$2"
 }
