@@ -9,10 +9,10 @@ YELLOW='\033[0;33m'
 CYAN='\033[0;36m'
 RESET='\033[0m'
 
-if [ "$NUMBER_OF_TEST_WINDOWS" -lt 3 ]; then
+[ "$NUMBER_OF_TEST_WINDOWS" -gt 2 ] 2> /dev/null || {
     echo -e "${RED}ERROR: NUMBER_OF_TEST_WINDOWS must be at least 3 to properly test workspace movement${RESET}"
     exit 1
-fi
+}
 
 expect() {
     local expect_error
@@ -132,19 +132,18 @@ close_test_windows() {
 trap close_test_windows EXIT
 
 niri msg action focus-workspace 0
-sleep 0.2
 for windo_index in $(seq 1 "$NUMBER_OF_TEST_WINDOWS"); do
     foot -f 'mono:size=32' -T niriushtest sh -c "echo '$windo_index'; sleep infinity" > /dev/null 2>&1 &
+    sleep 0.1
 done
-sleep 0.2
 
 mapfile -t test_window_ids < <(get windows id ".title == \"niriushtest\"")
-expect setup [ "${#test_window_ids[@]}" = $NUMBER_OF_TEST_WINDOWS ]
+expect setup [ "${#test_window_ids[@]}" =  "$NUMBER_OF_TEST_WINDOWS" ]
     expect setup [ "$(count_floating)" = 0 ]
 
 windo move-window-to-floating
 expect '`windo --title` applies action to all windows with matching title' \
-    [ "$(count_floating)" = $NUMBER_OF_TEST_WINDOWS ]
+    [ "$(count_floating)" =  "$NUMBER_OF_TEST_WINDOWS" ]
 
 windo --workspace focused move-window-to-tiling
 expect '`windo --workspace` applies action to all windows in workspace' \
@@ -152,7 +151,7 @@ expect '`windo --workspace` applies action to all windows in workspace' \
 
 windo --tiled move-window-to-floating
 expect '`windo --tiled` selects all tiled' \
-    [ "$(count_floating)" = $NUMBER_OF_TEST_WINDOWS ]
+    [ "$(count_floating)" =  "$NUMBER_OF_TEST_WINDOWS" ]
 
 windo --floating move-window-to-tiling
 expect '`windo --floating` selects all floating' \
@@ -184,7 +183,7 @@ count_windows_in_workspace() {
     get windows workspace_id ".workspace_id == $ws_id" | wc -w
 }
 
-expect setup [ "$(count_windows_in_workspace)" -eq $NUMBER_OF_TEST_WINDOWS ]
+expect setup [ "$(count_windows_in_workspace)" -eq  "$NUMBER_OF_TEST_WINDOWS" ]
 
 flock --unfocused --to-workspace 0
 expect '`flock --unfocused` does not move focused window' \
@@ -200,15 +199,15 @@ expect '`flock --unfocused` moves all unfocused windows to target workspace' \
 
 windo --workspace focused move-window-to-floating
 expect '`windo --workspace` applies command to all windows in new workspace' \
-    [ "$(count_floating)" = $NUMBER_OF_TEST_WINDOWS ]
+    [ "$(count_floating)" =  "$NUMBER_OF_TEST_WINDOWS" ]
 
 flock --mode up
 expect '`flock --mode up` moves each window to its own workspace' \
-    [ "$(get windows workspace_id '.title == "niriushtest"' | sort -u | wc -w)" = $NUMBER_OF_TEST_WINDOWS ]
+    [ "$(get windows workspace_id '.title == "niriushtest"' | sort -u | wc -w)" =  "$NUMBER_OF_TEST_WINDOWS" ]
 
 flock
 expect '`flock` with default mode moves all windows to current workspace' \
-    [ "$(count_windows_in_workspace)" = $NUMBER_OF_TEST_WINDOWS ]
+    [ "$(count_windows_in_workspace)" =  "$NUMBER_OF_TEST_WINDOWS" ]
 
 windo --workspace focused move-window-to-tiling
 expect '`windo --workspace` now applies to all windows again' \
@@ -219,7 +218,7 @@ mapfile -t output_names < <(get outputs name)
 if [ "${#output_names[@]}" -lt 2 ]; then
     echo -e "${YELLOW}WARN: Less than two outputs detected - multi-output tests will be skipped$RESET"
 else
-    expect setup [ "$(count_windows_in_workspace)" -eq $NUMBER_OF_TEST_WINDOWS ]
+    expect setup [ "$(count_windows_in_workspace)" -eq  "$NUMBER_OF_TEST_WINDOWS" ]
 
     primary_output="$(niri msg --json focused-output | jq -r '.name')"
     if [ "$primary_output" = "${output_names[0]}" ]; then
@@ -279,7 +278,7 @@ flock --mode fit
 start_time=$(date +%s)
 while [ "$(($(date +%s) - start_time))" -lt 5 ]; do
     for id in "${test_window_ids[@]}"; do
-        [ "$(count_windows_in_workspace)" = $NUMBER_OF_TEST_WINDOWS ] || break 2
+        [ "$(count_windows_in_workspace)" =  "$NUMBER_OF_TEST_WINDOWS" ] || break 2
         niri msg action focus-window --id "$id"
         sleep 0.1
     done
