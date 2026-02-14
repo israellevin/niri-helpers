@@ -115,6 +115,10 @@ include "<full path to your XDG_CONFIG_HOME>/niri/niriush.kdl"
 
 Make sure to replace `<full path to your XDG_CONFIG_HOME>` with the actual *full* path. The script will fail if the inclusion line is not found precisely as expected, so if you choose to add it manually make sure that the path is correct and that the line is formatted exactly as above.
 
+## Testing
+
+I use the `test_niriu.sh` script for some basic semi-automatic regression tests.
+
 ## niriu.sh Usage
 
 ```plaintext
