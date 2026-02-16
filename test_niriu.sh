@@ -111,6 +111,16 @@ expect error '`conf --reset` restores include line in main config' \
 expect '`conf --reset` restores include line in main config' \
     grep -qxF "include \"$DYNAMIC_NIRIUSH_CONFIG_FILE\"" "$NIRI_CONFIG_FILE"
 
+echo "=== Command line argument validation tests ==="
+
+expect error 'conflicting flags are disallowed' \
+    script -qec "$NIRIUSH flock --mode down --to-workspace 255" /dev/null
+
+$NIRIUSH conf --add 'layout { empty-workspace-above-first false; }'
+expect error 'unsupported flags are disallowed' \
+    script -qec "$NIRIUSH flock --mode up" /dev/null
+$NIRIUSH conf --rm 'layout { empty-workspace-above-first false; }'
+
 restore_configs
 niri msg action load-config-file > /dev/null 2>&1
 trap - EXIT
@@ -131,7 +141,7 @@ close_test_windows() {
 }
 trap close_test_windows EXIT
 
-niri msg action focus-workspace 0
+niri msg action focus-workspace 255
 for windo_index in $(seq 1 "$NUMBER_OF_TEST_WINDOWS"); do
     foot -f 'mono:size=32' -T niriushtest sh -c "echo '$windo_index'; sleep infinity" > /dev/null 2>&1 &
     sleep 0.1
@@ -185,7 +195,7 @@ count_windows_in_workspace() {
 
 expect setup [ "$(count_windows_in_workspace)" -eq  "$NUMBER_OF_TEST_WINDOWS" ]
 
-flock --unfocused --to-workspace 0
+flock --unfocused --to-workspace 255
 expect '`flock --unfocused` does not move focused window' \
     [ "$(count_windows_in_workspace)" = 1 ]
 
@@ -193,7 +203,7 @@ windo --workspace focused move-window-to-floating
 expect '`windo --workspace applies command only to windows in workspace`' \
     [ "$(count_floating)" = 1 ]
 
-niri msg action focus-workspace-up
+niri msg action focus-workspace-down
 expect '`flock --unfocused` moves all unfocused windows to target workspace' \
     [ "$(count_windows_in_workspace)" = $((NUMBER_OF_TEST_WINDOWS - 1)) ]
 
@@ -201,8 +211,8 @@ windo --workspace focused move-window-to-floating
 expect '`windo --workspace` applies command to all windows in new workspace' \
     [ "$(count_floating)" =  "$NUMBER_OF_TEST_WINDOWS" ]
 
-flock --mode up
-expect '`flock --mode up` moves each window to its own workspace' \
+flock --mode down
+expect '`flock --mode down` moves each window to its own workspace' \
     [ "$(get windows workspace_id '.title == "niriushtest"' | sort -u | wc -w)" =  "$NUMBER_OF_TEST_WINDOWS" ]
 
 flock
@@ -228,7 +238,7 @@ else
     fi
     echo "Using outputs: $primary_output and $secondary_output"
 
-    flock --unfocused --to-output "$secondary_output" --to-workspace 0
+    flock --unfocused --to-output "$secondary_output" --to-workspace 255
     expect '`flock` moves selected windows out of focused workspace' \
         [ "$(count_windows_in_workspace)" = 1 ]
 
@@ -248,7 +258,7 @@ else
     expect '`windo --output` applies only to windows on selected output' \
         [ "$(count_floating)" = $((NUMBER_OF_TEST_WINDOWS - 1)) ]
 
-    flock --output "$secondary_output" --to-output "$secondary_output" --mode up
+    flock --output "$secondary_output" --to-output "$secondary_output" --mode down
 
     secondary_output_workspace_ids="$(get workspaces id ".output == \"$secondary_output\"")"
     secondary_output_workspace_ids="$(tr '\n' ',' <<<"$secondary_output_workspace_ids")"
@@ -258,7 +268,7 @@ else
         sort -u | \
         wc -w
     )"
-    expect '`flock --mode up` creates a separate workspace for each flocked window' \
+    expect '`flock --mode down` creates a separate workspace for each flocked window' \
         [ "$number_of_arranged_workspaces" = $((NUMBER_OF_TEST_WINDOWS - 1)) ]
 
     mapfile -t secondary_output_window_ids < <(get windows id ".workspace_id | IN($secondary_output_workspace_ids)")
@@ -267,10 +277,10 @@ else
         [ "$(count_windows_in_workspace)" = 2 ]
 fi
 
+echo "=== Visual test ==="
 niri msg action focus-window --id "$INITIAL_WINDOW_ID"
-echo -e "$CYAN=== Visual test ===$RESET"
-echo "Visually verify that all $NUMBER_OF_TEST_WINDOWS test windows fit on the screen"
-echo "Press any key (or wait) to continue, then ctrl-c (or wait) to finish the test"
+echo -e "${CYAN}Visually verify that all $NUMBER_OF_TEST_WINDOWS test windows fit on the screen"
+echo -e "Press any key (or wait) to continue, then ctrl-c (or wait) to finish the test$RESET"
 timeout -f 5 bash -c 'read -sn1' > /dev/null 2>&1
 
 niri msg action focus-window-previous

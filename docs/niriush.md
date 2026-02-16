@@ -39,10 +39,11 @@ You can send the matching windows to different outputs and workspaces, so the fo
 niriu.sh flock --output edP-1 --to-output HDMI-A-1 --to-workspace 2
 ```
 
-You can also use different arrangement modes. The default "natural" mode just moves all the collected windows to a specific workspace, but you can also use "up" and "down" which scatters each window to its own workspace above or below the specified output (defaulting to the currently focused one). So the following will take all the windows on an HDMI output and scatter each to its own workspace on the top of the currently focused output:
+You can also use different arrangement modes. The default "natural" mode just moves all the collected windows to a specific workspace, but you can also use "down" (and "up", if you have the `empty-workspace-above-first` option enabled) which scatters each window to its own workspace below the bottom workspace (or above the top workspace) on the specified output. So the following will take all the windows on an HDMI output and scatter each to its own workspace on the bottom of the currently focused output:
+
 
 ```sh
-niriu.sh flock --output HDMI-A-1 --mode up
+niriu.sh flock --output HDMI-A-1 --mode down
 ```
 
 Note that the "up" and "down" modes will scatter windows across multiple workspaces, so these two modes are mutually exclusive with the `--to-workspace` option.

@@ -53,7 +53,7 @@ error() {
         [ "$details" ] && echo -e "$details\n" >&2
         [ "$show_usage" ] && usage >&2
     else
-        notify-send -a 'niriu.sh error' -u critical "$message" "$details"
+        notify-send -a 'niriu.sh error' -u critical "$message" "'$NIRIU_SH_COMMAND' failed at line ${BASH_LINENO[0]}"
     fi
     exit 1
 }
@@ -154,7 +154,14 @@ scatter() {
     local to_output_name="$2"
     local mode="$3"
     local to_workspace_idx
-    [ "$mode" = down ] && to_workspace_idx=255 || to_workspace_idx=0
+    if [ "$mode" = down ]; then
+        to_workspace_idx=255
+    else
+        niri msg --json workspaces | jq '.[] | select(.idx == 1) | .active_window_id' | grep -qxF null || \
+            error "Mode '$mode' is only supported when 'empty-workspace-above-first' is enabled"
+        to_workspace_idx=0
+    fi
+
     windo "$window_ids" '--id' '' move-window-to-monitor "$to_output_name"
     windo "$window_ids" '--window-id' '--focus false' move-window-to-workspace "$to_workspace_idx"
 }
@@ -225,7 +232,7 @@ flock() {
     to_window_id="$(get windows id '.is_focused == true')"
     case "$mode" in
         up|down)
-            [ "$to_workspace_reference" ] && error "--to-workspace cannot be used with $mode"
+            [ "$to_workspace_reference" ] && error "--to-workspace cannot be used with mode $mode"
             scatter "$window_ids" "$to_output_name" "$mode"
             ;;
         natural|fit)
@@ -235,7 +242,7 @@ flock() {
             niri msg action focus-workspace "$to_workspace_reference"
 
             # Scatter windows before fetch to break up existing stacks.
-            scatter "$window_ids" "$to_output_name" up
+            scatter "$window_ids" "$to_output_name" down
 
             fetch "$window_ids"
             [ "$mode" = fit ] && fit "$window_ids"
@@ -405,5 +412,6 @@ niriush() {
 # shellcheck disable=SC2317  # This makes semantic sense if you consider sourcing vs executing.
 if ! return 0 2>/dev/null; then
     set -Eeo pipefail
+    NIRIU_SH_COMMAND="$0 $*"
     niriush "$@"
 fi
