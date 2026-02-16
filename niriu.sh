@@ -9,6 +9,7 @@ Manage niri windows, workspaces, and configuration dynamically.
 Commands:
   conf [OPTIONS]...           Manage dynamic niriush configuration
   flock [OPTIONS]...          Arranges matching windows on a workspace/output
+  ids [OPTIONS]...            Print IDs of windows matching selection criteria
   windo [OPTIONS]... ACTION   Perform ACTION on windows matching selection criteria
   help                        Show this help message and exit
 Configuration manipulation options for 'config' (can be combined - the effects are applied in order):
@@ -16,7 +17,7 @@ Configuration manipulation options for 'config' (can be combined - the effects a
   --rm LINE                   Remove LINE (if found) from the dynamic niriush configuration file
   --toggle LINE               Toggle LINE in the dynamic niriush configuration file
   --reset                     Reset the dynamic niriush configuration file to default state
-Window selection options for 'flock' and 'windo' (can be combined - windows must match all criteria):
+Window selection options for 'flock', 'ids' and 'windo' (can be combined - windows must match all criteria):
   --workspace REFERENCE       Select windows by workspace index, name, or 'focused'
   --output REFERENCE          Select windows by output name or 'focused'
   --app-id APP_ID             Select windows by application ID regex (case insensitive)
@@ -254,7 +255,7 @@ niriush() {
     case "$command_name" in
         help|--help|-h) usage && exit;;
         conf) configure "$@"; exit;;
-        flock|windo)
+        flock|ids|windo)
             local window_ids
             local action=()
             local filters=()
@@ -263,6 +264,7 @@ niriush() {
             local to_output_name
             local to_workspace_reference
             local mode
+            local no_windows
             while [ $# -gt 0 ]; do
                 case "$1" in
                     --workspace)
@@ -277,7 +279,10 @@ niriush() {
                                 workspace_id=$(get workspaces id ".name == \"$1\"")
                             fi
                         fi
-                        [ "$workspace_id" ] || return 0  # No such workspace, so no windows.
+                        if [ -z "$workspace_id" ]; then
+                            no_windows=true
+                            break
+                        fi
                         filters+=(".workspace_id == $workspace_id")
                         shift
                         ;;
@@ -292,10 +297,13 @@ niriush() {
                         shift
                         local output_workspace_ids
                         output_workspace_ids="$(get workspaces id ".output == \"$output_name\"")"
-                        [ "$output_workspace_ids" ] || return 0  # No workspaces on that output, so no windows.
+                        if [ -z "$output_workspace_ids" ]; then
+                            no_windows=true
+                            break
+                        fi
                         output_workspace_ids="$(tr '\n' ',' <<<"$output_workspace_ids")"
                         output_workspace_ids="(${output_workspace_ids%,})"
-                        filters+=(".workspace_id | IN($output_workspace_ids)")
+                        filters+=(".workspace_id | in($output_workspace_ids)")
                         ;;
                     --app-id)
                         shift
@@ -370,10 +378,19 @@ niriush() {
                 esac
             done
 
-            window_ids="$(get windows id "${filters[@]}")"
-            [ "$window_ids" ] || exit 0
 
-            if [ "$command_name" = windo ]; then
+            if [ "$no_windows" != true ]; then
+                window_ids="$(get windows id "${filters[@]}")"
+            fi
+            if ! [ "$window_ids" ]; then
+                # Don't trigger a full error, just return non-zero which might be useful for shell logic.
+                trap - ERR
+                return 1
+            fi
+
+            if [ "$command_name" = ids ]; then
+                echo "$window_ids"
+            elif [ "$command_name" = windo ]; then
                 windo "$window_ids" "$windo_id_flag" "$windo_extra_args" "${action[@]}"
             elif [ "$command_name" = flock ]; then
                 [ "$to_output_name" ] || to_output_name="$(focused_output)"

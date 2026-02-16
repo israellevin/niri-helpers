@@ -77,6 +77,24 @@ If you need to pass extra arguments to the action, you can use the `--extra-args
 niriu.sh windo --extra-args '--focus false' --id-flag '--window-id' move-window-to-workspace 2
 ```
 
+### ids - Window ID Printing
+
+If you just want to get the IDs of windows matching certain criteria, you can do that with the `ids` command:
+
+```sh
+niriu.sh ids --app-id foot --title vim
+```
+
+Like all the window selection commands, this returns a non-zero exit code if no windows are found matching the criteria, which lets you do stuff like this to toggle focus between floating and tiled if tiled windows exist on the focused workspace, or make the current window floating if there are none:
+
+```kdl
+Mod+V { spawn-sh "
+    niriu.sh ids --workspace focused --floating &&
+        niri msg action switch-focus-between-floating-and-tiling ||
+        niri msg action toggle-window-floating
+"; }
+```
+
 ### conf - Dynamic Configuration Management
 
 To avoid accidentally messing up your main configuration file, niriu.sh operates on a separate dynamic configuration file which needs to be included in the main niri configuration file (either see [Installation](#installation) for instructions or simply answer yes when running the command and allow the script to do it for you.
@@ -127,6 +145,7 @@ Manage niri windows, workspaces, and configuration dynamically.
 Commands:
   conf [OPTIONS]...           Manage dynamic niriush configuration
   flock [OPTIONS]...          Arranges matching windows on a workspace/output
+  ids [OPTIONS]...            Print IDs of windows matching selection criteria
   windo [OPTIONS]... ACTION   Perform ACTION on windows matching selection criteria
   help                        Show this help message and exit
 Configuration manipulation options for 'config' (can be combined - the effects are applied in order):
@@ -134,7 +153,7 @@ Configuration manipulation options for 'config' (can be combined - the effects a
   --rm LINE                   Remove LINE (if found) from the dynamic niriush configuration file
   --toggle LINE               Toggle LINE in the dynamic niriush configuration file
   --reset                     Reset the dynamic niriush configuration file to default state
-Window selection options for 'flock' and 'windo' (can be combined - windows must match all criteria):
+Window selection options for 'flock', 'ids' and 'windo' (can be combined - windows must match all criteria):
   --workspace REFERENCE       Select windows by workspace index, name, or 'focused'
   --output REFERENCE          Select windows by output name or 'focused'
   --app-id APP_ID             Select windows by application ID regex (case insensitive)
