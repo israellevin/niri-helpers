@@ -1,5 +1,13 @@
 #!/bin/bash -e
 
+usage() {
+    echo "Usage: $0 [clean] [--branch <branch>] [--repo <repo>]"
+    echo "  clean: Force rebuild of niri by using a new build argument."
+    echo "  --branch <branch>: Specify the branch of the niri repository to use (default: main)."
+    echo "  --repo <repo>: Specify the repository URL of niri to use (default: https://github.com/niri-wm/niri)."
+    exit 1
+}
+
 dockerfile() {
     cat <<'EOF'
 FROM debian:sid
@@ -35,7 +43,9 @@ RUN cargo install --force cargo-strip
 
 # Build niri
 ARG NEW_NIRI
-RUN git clone https://github.com/niri-wm/niri.git /niri
+ARG NIRI_REPO=https://github.com/niri-wm/niri.git
+ARG NIRI_BRANCH=main
+RUN git clone --branch "$NIRI_BRANCH" --depth 1 "$NIRI_REPO" /niri
 WORKDIR /niri
 RUN cargo build --release
 RUN cargo strip
@@ -57,11 +67,36 @@ EOF
 }
 
 make() {
-    local clean_flag
-    [ "$1" = clean ] && clean_flag="--build-arg NEW_NIRI=$(date +%s)"
+    local build_flags
+    local branch
+    local repo
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            clean)
+                build_flags+=" --build-arg NEW_NIRI=$(date +%s)"
+                ;;
+            --branch)
+                [ "$branch" ] && echo "Branch already set to $branch, cannot set to $1" && exit 1
+                shift
+                branch="$1"
+                build_flags+=" --build-arg NIRI_BRANCH=$branch"
+                ;;
+            --repo)
+                [ "$repo" ] && echo "Repo already set to $repo, cannot set to $1" && exit 1
+                shift
+                repo="$1"
+                build_flags+=" --build-arg NIRI_REPO=$repo"
+                ;;
+            *)
+                echo "Unknown argument: $1"
+                usage
+                ;;
+        esac
+        shift
+    done
 
-    # shellcheck disable=SC2086  # Allow word splitting for clean_flag
-    dockerfile | docker build . -t niri-builder $clean_flag -f -
+    # shellcheck disable=SC2086  # Allow word splitting for build_flags
+    dockerfile | docker build . -t niri-builder $build_flags -f -
     docker run --rm --name niri-builder -dp 5020:80 niri-builder
     mkdir -p ./build
     docker cp niri-builder:/niri/target/release/niri ./build/.
