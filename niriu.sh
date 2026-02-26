@@ -173,7 +173,7 @@ fetch() {
     # Instead, we get the current workspace updated idx before each move.
     for window_id in $window_ids; do
         niri msg action move-window-to-monitor "$(focused_output)" --id "$window_id"
-        niri msg action move-window-to-workspace "$(get workspaces name '.is_focused == true')" \
+        niri msg action move-window-to-workspace "$(get workspaces idx '.is_focused == true')" \
             --window-id "$window_id" --focus false
     done
 }
