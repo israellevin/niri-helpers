@@ -90,6 +90,7 @@ async fn run_command(
     };
 
     command
+        .env("NED_PID", std::process::id().to_string())
         .stdin(Stdio::piped())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
