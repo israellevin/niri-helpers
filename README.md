@@ -24,13 +24,14 @@ For more information see [ned docs](./ned/README.md).
 
 ## mkniri.sh
 
-An easy to use wrapper around an embedded `Dockerfile` for building niri, xwayland-satellite and ned from source in a docker container, optionally invalidating the build cache, and then copying the built binaries to a local `./build` directory (from which you can easily copy them to somewhere in your `PATH` or just run them from there).
+An easy to use wrapper around an embedded `Dockerfile` for building niri, xwayland-satellite and ned from source in a docker container, optionally invalidating the build cache, and then copying the built binaries and example scripts to a local build directory from which you can easily copy them to somewhere in your `PATH` or just run them from there.
 
 ```text
 Usage: ./mkniri.sh [clean] [--branch <branch>] [--repo <repo>]
   clean: Force rebuild of niri by using a new build argument.
   --branch <branch>: Specify the branch of the niri repository to use (default: main).
   --repo <repo>: Specify the repository URL of niri to use (default: https://github.com/niri-wm/niri).
+  --build-directory <dir>: Specify the directory to copy the built files to (default: ./build).
 ```
 
 ## Requirements

@@ -5,6 +5,7 @@ usage() {
     echo "  clean: Force rebuild of niri by using a new build argument."
     echo "  --branch <branch>: Specify the branch of the niri repository to use (default: main)."
     echo "  --repo <repo>: Specify the repository URL of niri to use (default: https://github.com/niri-wm/niri)."
+    echo "  --build-directory <dir>: Specify the directory to copy the built files to (default: ./build)."
     exit 1
 }
 
@@ -70,6 +71,7 @@ make() {
     local build_flags
     local branch
     local repo
+    local build_directory="./build"
     while [ "$#" -gt 0 ]; do
         case "$1" in
             clean)
@@ -87,6 +89,10 @@ make() {
                 repo="$1"
                 build_flags+=" --build-arg NIRI_REPO=$repo"
                 ;;
+            --build-directory)
+                shift
+                build_directory="$1"
+                ;;
             *)
                 echo "Unknown argument: $1"
                 usage
@@ -98,11 +104,12 @@ make() {
     # shellcheck disable=SC2086  # Allow word splitting for build_flags
     dockerfile | docker build . -t niri-builder $build_flags -f -
     docker run --rm --name niri-builder -dp 5020:80 niri-builder
-    mkdir -p ./build
-    docker cp niri-builder:/niri/target/release/niri ./build/.
-    docker cp niri-builder:/xwayland-satellite/target/release/xwayland-satellite ./build/.
-    docker cp niri-builder:/ned/target/release/ned ./build/.
-    echo Binaries copied to ./build directory
+    mkdir -p "$build_directory"
+    docker cp niri-builder:/niri/target/release/niri "$build_directory"
+    docker cp niri-builder:/xwayland-satellite/target/release/xwayland-satellite "$build_directory"
+    docker cp niri-builder:/ned/target/release/ned "$build_directory"
+    docker cp niri-builder:/ned/examples/ "$build_directory/ned_examples/"
+    echo Files copied to ./build directory
     docker rm -f niri-builder
 }
 
