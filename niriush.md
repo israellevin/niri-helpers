@@ -1,4 +1,4 @@
-# niriu.sh - niri utilities script
+# niriu.sh - niri user shell helper
 
 A bash script for easy management of niri windows, workspaces and configuration from the command line or (more likely) from key bindings.
 
