@@ -1,21 +1,21 @@
 # niriu.sh - niri utilities script
 
-A small bash script for easy management of niri windows, workspaces and configuration from the command line or (more likely) from key bindings.
+A bash script for easy management of niri windows, workspaces and configuration from the command line or (more likely) from key bindings.
 
-- Collect all windows that match chosen criteria and send them to a chosen workspace on a chosen output, scatter them across multiple workspaces or even tile them to fit a chosen screen
+- Collect all windows that match chosen criteria and send them to a chosen workspace on a chosen output, scatter them across multiple workspaces or even tile or float them to fit a chosen screen
 - Run custom commands on windows that match chosen criteria, such as maximizing them, changing their opacity or closing them
 - Dynamically add, remove, or toggle niri configuration lines on the fly without needing to edit anything manually
 
 ## Try it Out
 
-If you already have niri installed and running and only want to give `niriu.sh` a quick try, you can download it to your current working directory and run it from there (after examining the code, of course), substituting `niriu.sh` with `bash niriu.sh` in the examples below:
+If you already have niri running with IPC support and want to give `niriu.sh` a quick try, you can download it to your current working directory and run it from there (after examining the code, of course), substituting `niriu.sh` with `bash niriu.sh` in the examples below:
 
 ```sh
 curl -Lo niriu.sh https://raw.githubusercontent.com/israellevin/niriush/master/niriu.sh
 bash niriu.sh help
 ```
 
-All of the niriu.sh commands can be launched from key bindings defined with `spawn-sh`, and script errors will be sent as notifications when there is no terminal connected to standard error.
+All of the niriu.sh commands can be launched from key bindings defined with `spawn` or `spawn-sh` and script errors will be sent as notifications when there is no terminal connected to standard error.
 
 ### flock - Workspace Management
 
@@ -28,37 +28,56 @@ niriu.sh flock
 You can choose specific subsets of windows to collect by filtering by title, app-id, workspace, output or any filter that matches the window data niri provides:
 
 ```sh
+niriu.sh flock --floating
+niriu.sh flock --app-id foot
 niriu.sh flock --title firefox
-niriu.sh flock --output HDMI-A-1 --app-id foot
-niriu.sh flock --filter '.is_floating == true'
+niriu.sh flock --output HDMI-A-1
+niriu.sh flock --workspace focused
+niriu.sh flock --filter '.is_urgent == true'
+```
+
+Only windows that match all of the provided criteria will be collected.
+
+```sh
+niriu.sh flock --output focused --workspace 3 --title vieb
 ```
 
 You can send the matching windows to different outputs and workspaces, so the following will collect all the windows on the currently focused workspace and move them to workspace 2 on the HDMI-A-1 output:
 
 ```sh
-niriu.sh flock --output edP-1 --to-output HDMI-A-1 --to-workspace 2
+niriu.sh flock --output focused --to-output HDMI-A-1 --to-workspace 2
 ```
 
-You can also use different arrangement modes. The default "natural" mode just moves all the collected windows to a specific workspace, but you can also use "down" (and "up", if you have the `empty-workspace-above-first` option enabled) which scatters each window to its own workspace below the bottom workspace (or above the top workspace) on the specified output. So the following will take all the windows on an HDMI output and scatter each to its own workspace on the bottom of the currently focused output:
+By default, the collected windows will be moved to the target workspace as they are, but you can rearrange them using one of the different arrangement modes: `float`, `tile` and `scatter`.
 
+`float` will turn all the collected windows into floating windows, and optionally resize and reposition them to fit a defined area on a selected output. So, for example, you can collect all the foot terminal windows, make them floating on the current workspace, and "tile" them in the center 75% of the screen with 20 pixels of padding around each window:
 
 ```sh
-niriu.sh flock --output HDMI-A-1 --mode down
+niriu.sh flock --app-id foot --mode float center 75 20
 ```
 
-Note that the "up" and "down" modes will scatter windows across multiple workspaces, so these two modes are mutually exclusive with the `--to-workspace` option.
-
-And lastly, there is a somewhat experimental "fit" mode which will tile the collected windows in a grid calculated to fit them all on the targeted screen. So the following will collect all of your windows and try to fit them on the screen you are currently focused on:
+Or float them to the right quarter of the screen with no padding (the default size is 50% and the default padding is 8):
 
 ```sh
-niriu.sh flock --mode fit
+niriu.sh flock --app-id foot --mode float right 25 0
 ```
 
-While the following will tile all of the windows running foot with "vim" in the title and try to fit them on the "editors" workspace on the HDMI-A-1 output.
+`tile` will move all the collected windows to the tiling layout and optionally resize them and stack them together to fit a selected output.
 
 ```sh
-niriu.sh flock --app-id foot --title vim --to-output HDMI-A-1 --to-workspace editors --mode fit
+niriu.sh flock --mode tile      # Will force all collected windows into the tiling layout
+niriu.sh flock --mode tile max  # Will also resize each window to the size of the the target output
+niriu.sh flock --mode tile fit  # Will fit all windows in a grid calculated to the size of the target output
 ```
+
+`scatter` moves each collected window to its own, newly created workspace on the target output. By default the new workspaces will be created at the bottom of the target output, but if you have the `empty-workspace-above-first` option enabled, you can also create them above the top workspace on the target output.
+
+```sh
+niriu.sh flock --mode scatter
+niriu.sh flock --mode scatter up
+```
+
+Note that since `scatter` scatters windows across multiple workspaces, this mode is mutually exclusive with the `--to-workspace` option.
 
 ### windo - Mass Window Actions
 
@@ -106,6 +125,7 @@ Operation is pretty straightforward, you can add, remove or toggle lines in the 
 niriu.sh conf --add 'animations { on; }'     # Add a line enabling animations to dynamic config
 niriu.sh conf --rm 'animations { on; }'      # Remove that line
 niriu.sh conf --toggle 'animations { on; }'  # Toggle that line
+niriu.sh conf --rm-re 'anim.*'               # Remove any line fully matching the regex
 niriu.sh conf --reset                        # Remove all dynamic configuration lines
 ```
 
@@ -144,33 +164,68 @@ I use the `test_niriu.sh` script for some basic semi-automatic regression tests.
 Usage: niriu.sh COMMAND [OPTIONS]... ARGUMENTS
 Manage niri windows, workspaces, and configuration dynamically.
 Commands:
-  conf [OPTIONS]...           Manage dynamic niriush configuration
-  flock [OPTIONS]...          Arranges matching windows on a workspace/output
-  ids [OPTIONS]...            Print IDs of windows matching selection criteria
-  windo [OPTIONS]... ACTION   Perform ACTION on windows matching selection criteria
-  help                        Show this help message and exit
-Configuration manipulation options for 'config' (can be combined - the effects are applied in order):
-  --add LINE                  Add LINE (if not found) to the dynamic niriush configuration file
-  --rm LINE                   Remove LINE (if found) from the dynamic niriush configuration file
-  --toggle LINE               Toggle LINE in the dynamic niriush configuration file
-  --reset                     Reset the dynamic niriush configuration file to default state
-Window selection options for 'flock', 'ids' and 'windo' (can be combined - windows must match all criteria):
-  --workspace REFERENCE       Select windows by workspace index, name, or 'focused'
-  --output REFERENCE          Select windows by output name or 'focused'
-  --app-id APP_ID             Select windows by application ID regex (case insensitive)
-  --title TITLE               Select windows by title regex (case insensitive).
-  --floating                  Select only floating windows (ignore tiled)
-  --tiled                     Select only tiled windows (ignore floating)
-  --focused                   Select only focused windows (ignore unfocused)
-  --unfocused                 Select only unfocused windows (ignore focused)
-  --filter JQ_FILTER          Select windows by custom jq filter (passed directly and entirely to 'jq')
-Target selection options for 'flock' ('--to-workspace' doesn't make sense for 'up'/'down' arrangements):
-  --to-output OUTPUT          Name of output to move windows to (default is focused output)
-  --to-workspace REFERENCE    Index or name of workspace to move windows to (default is focused workspace)
-  --mode MODE                 Window arrangement: 'natural', 'up', 'down' and 'fit' (default is 'natural')
-Action command options for 'windo':
-  --extra-args ARGS           Additional arguments to pass to ACTION
-  --id-flag FLAG              Specify the flag to use for specifying window IDs in ACTION (default is --id)
+  conf [OPTIONS]...            Manage dynamic niriush configuration
+  flock [OPTIONS]...           Arranges matching windows on a workspace/output
+  ids [OPTIONS]...             Print IDs of windows matching selection criteria
+  windo [OPTIONS]... ACTION    Perform ACTION on windows matching selection criteria
+  help                         Show this help message and exit
+Configuration manipulation options for 'conf' (can be combined - the effects are applied in order):
+  --add LINE
+        Add LINE (if not found) to the dynamic niriush configuration file
+  --rm LINE
+        Remove LINE (if found) from the dynamic niriush configuration file
+  --toggle LINE
+        Toggle LINE in the dynamic niriush configuration file
+  --rm-re REGEX
+        Remove all lines matching grep REGEX from the dynamic niriush configuration file
+  --reset
+        Reset the dynamic niriush configuration file to default state
+Window selection options for ' flock' and 'windo' (can be combined - windows must match all criteria):
+  --workspace REFERENCE
+        Select windows by workspace index, name, or 'focused'
+  --output REFERENCE
+        Select windows by output name or 'focused'
+  --app-id APP_ID
+        Select windows by application ID regex (case insensitive)
+  --title TITLE
+        Select windows by title regex (case insensitive)
+  --floating
+        Select only floating windows (ignore tiled)
+  --tiled
+        Select only tiled windows (ignore floating)
+  --focused
+        Select only focused windows (ignore unfocused)
+  --unfocused
+        Select only unfocused windows (ignore focused)
+  --filter JQ_FILTER
+        Select windows by custom jq filter (passed directly and entirely to 'jq')
+Target selection options for 'flock' (at most one of each):
+  --to-output OUTPUT
+        Name of output to move windows to (default is focused output)
+  --to-workspace REFERENCE
+        Index or name of workspace to move windows to (default is focused workspace)
+  --mode MODE
+        Window arrangement modes (optional, default is to move the windows as they are):
+        tile [fit|max]
+            Move all matching windows to tiling layout
+            fit - Arrange windows in a grid to fit the target output size
+            max - Maximize each window to target output size
+        float [DIRECTION] [SIZE] [PADDING]
+            Move matching windows to floating layout
+            DIRECTION specifies which part of the output to use - right, left, up, down or center
+            SIZE specifies what fraction of the output area to use as percents (default is 50)
+            PADDING specifies the empty padding around floating windows in pixels (default is 8)
+        scatter [down|up]
+            Move each matching window to an individual workspaces, creating workspaces as needed
+            This mode is mutually exclusive with the '--to-workspace' option
+            down - create workspaces at bottom of target output (default)
+            up - at top (requires enabling the 'empty-workspace-above-first' configuration option)
+Action command options for 'windo' (at most one of each):
+  --extra-args ARGS
+        Additional arguments to pass to ACTION
+  --id-flag FLAG
+        Specify the flag to use for specifying window IDs in ACTION (default is --id)
 General Options:
-  --help, -h                  Show this help message and exit
+  --help, -h
+        Show this help message and exit
 ```
