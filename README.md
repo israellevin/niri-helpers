@@ -2,15 +2,15 @@
 
 Shell based support to make life with niri even better!
 
-## niriu.sh
+## niriu.sh - niri user shell helper
 
-A small bash script for easy management of niri windows, workspaces and configuration from the command line or (more likely) from key bindings.
+A bash script for easy management of niri windows, workspaces and configuration from the command line or (more likely) from key bindings.
 
-- Collect all windows that match chosen criteria and send them to a chosen workspace on a chosen output, scatter them across multiple workspaces or even tile them to fit a chosen screen
+- Collect all windows that match chosen criteria and send them to a chosen workspace on a chosen output, scatter them across multiple workspaces or even tile or float them to fit a chosen screen
 - Run custom commands on windows that match chosen criteria, such as maximizing them, changing their opacity or closing them
 - Dynamically add, remove, or toggle niri configuration lines on the fly without needing to edit anything manually
 
-To learn more about how to use it, or just to play with it without installing or building anything new, just skip to the [niriu.sh docs](./docs/niriush.md).
+To learn more about how to use it, or just to play with it without installing or building anything new, just skip to the [niriu.sh docs](./niriush.md).
 
 ## ned
 
@@ -20,7 +20,7 @@ This is extremely powerful (in theory you could use it to write a whole new wind
 
 My humble usage example is listening for the `WindowClosed` event, then checking if there are any windows left on the currently focused workspace, and if not, attempting to automatically switch to the previously focused window.
 
-For more information see [ned docs](./docs/ned.md).
+For more information see [ned docs](./ned/README.md).
 
 ## mkniri.sh
 
