@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/sh -e
 [ "$NED_PID" ] || exec ned WindowClosed "$0"
 
 get() {
