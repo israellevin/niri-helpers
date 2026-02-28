@@ -7,36 +7,70 @@ usage() {
 Usage: $0 COMMAND [OPTIONS]... ARGUMENTS
 Manage niri windows, workspaces, and configuration dynamically.
 Commands:
-  conf [OPTIONS]...           Manage dynamic niriush configuration
-  flock [OPTIONS]...          Arranges matching windows on a workspace/output
-  ids [OPTIONS]...            Print IDs of windows matching selection criteria
-  windo [OPTIONS]... ACTION   Perform ACTION on windows matching selection criteria
-  help                        Show this help message and exit
-Configuration manipulation options for 'config' (can be combined - the effects are applied in order):
-  --add LINE                  Add LINE (if not found) to the dynamic niriush configuration file
-  --rm LINE                   Remove LINE (if found) from the dynamic niriush configuration file
-  --rm-re REGEX               Remove all lines matching grep REGEX from the dynamic niriush configuration file
-  --toggle LINE               Toggle LINE in the dynamic niriush configuration file
-  --reset                     Reset the dynamic niriush configuration file to default state
-Window selection options for 'flock', 'ids' and 'windo' (can be combined - windows must match all criteria):
-  --workspace REFERENCE       Select windows by workspace index, name, or 'focused'
-  --output REFERENCE          Select windows by output name or 'focused'
-  --app-id APP_ID             Select windows by application ID regex (case insensitive)
-  --title TITLE               Select windows by title regex (case insensitive).
-  --floating                  Select only floating windows (ignore tiled)
-  --tiled                     Select only tiled windows (ignore floating)
-  --focused                   Select only focused windows (ignore unfocused)
-  --unfocused                 Select only unfocused windows (ignore focused)
-  --filter JQ_FILTER          Select windows by custom jq filter (passed directly and entirely to 'jq')
-Target selection options for 'flock' ('--to-workspace' doesn't make sense for 'up'/'down' arrangements):
-  --to-output OUTPUT          Name of output to move windows to (default is focused output)
-  --to-workspace REFERENCE    Index or name of workspace to move windows to (default is focused workspace)
-  --mode MODE                 Window arrangement: 'natural', 'up', 'down' and 'fit' (default is 'natural')
-Action command options for 'windo':
-  --extra-args ARGS           Additional arguments to pass to ACTION
-  --id-flag FLAG              Specify the flag to use for specifying window IDs in ACTION (default is --id)
+  conf [OPTIONS]...            Manage dynamic niriush configuration
+  flock [OPTIONS]...           Arranges matching windows on a workspace/output
+  ids [OPTIONS]...             Print IDs of windows matching selection criteria
+  windo [OPTIONS]... ACTION    Perform ACTION on windows matching selection criteria
+  help                         Show this help message and exit
+Configuration manipulation options for 'conf' (can be combined - the effects are applied in order):
+  --add LINE
+        Add LINE (if not found) to the dynamic niriush configuration file
+  --rm LINE
+        Remove LINE (if found) from the dynamic niriush configuration file
+  --toggle LINE
+        Toggle LINE in the dynamic niriush configuration file
+  --rm-re REGEX
+        Remove all lines matching grep REGEX from the dynamic niriush configuration file
+  --reset
+        Reset the dynamic niriush configuration file to default state
+Window selection options for ' flock' and 'windo' (can be combined - windows must match all criteria):
+  --workspace REFERENCE
+        Select windows by workspace index, name, or 'focused'
+  --output REFERENCE
+        Select windows by output name or 'focused'
+  --app-id APP_ID
+        Select windows by application ID regex (case insensitive)
+  --title TITLE
+        Select windows by title regex (case insensitive)
+  --floating
+        Select only floating windows (ignore tiled)
+  --tiled
+        Select only tiled windows (ignore floating)
+  --focused
+        Select only focused windows (ignore unfocused)
+  --unfocused
+        Select only unfocused windows (ignore focused)
+  --filter JQ_FILTER
+        Select windows by custom jq filter (passed directly and entirely to 'jq')
+Target selection options for 'flock' (at most one of each):
+  --to-output OUTPUT
+        Name of output to move windows to (default is focused output)
+  --to-workspace REFERENCE
+        Index or name of workspace to move windows to (default is focused workspace)
+  --mode MODE
+        Window arrangement modes (optional, default is to move the windows as they are):
+        tile [fit|max]
+            Move all matching windows to tiling layout
+            fit - Arrange windows in a grid to fit the target output size
+            max - Maximize each window to target output size
+        float [DIRECTION] [SIZE] [PADDING]
+            Move matching windows to floating layout
+            DIRECTION specifies which part of the output to use - right, left, up, down or center
+            SIZE specifies what fraction of the output area to use as percents (default is 50)
+            PADDING specifies the empty padding around floating windows in pixels (default is 8)
+        scatter [down|up]
+            Move each matching window to an individual workspaces, creating workspaces as needed
+            This mode is mutually exclusive with the '--to-workspace' option
+            down - create workspaces at bottom of target output (default)
+            up - at top (requires enabling the 'empty-workspace-above-first' configuration option)
+Action command options for 'windo' (at most one of each):
+  --extra-args ARGS
+        Additional arguments to pass to ACTION
+  --id-flag FLAG
+        Specify the flag to use for specifying window IDs in ACTION (default is --id)
 General Options:
-  --help, -h                  Show this help message and exit
+  --help, -h
+        Show this help message and exit
 EOF
 }
 
@@ -161,27 +195,17 @@ windo() {
 scatter() {
     local window_ids="$1"
     local to_output_name="$2"
-    local mode="$3"
+    local direction="$3"
     local to_workspace_idx
-    if [ "$mode" = down ]; then
-        to_workspace_idx=255
-    else
-        niri msg --json workspaces | jq '.[] | select(.idx == 1) | .active_window_id' | grep -qxF null || \
-            error "Mode '$mode' is only supported when 'empty-workspace-above-first' is enabled"
-        to_workspace_idx=0
-    fi
-
-    windo "$window_ids" '--id' '' move-window-to-monitor "$to_output_name"
+    [ "$direction" = up ] && to_workspace_idx=0 || to_workspace_idx=255
     windo "$window_ids" '--window-id' '--focus false' move-window-to-workspace "$to_workspace_idx"
 }
 
 fetch() {
     local window_ids="$1"
-
     # Can't use `windo` here because workspace idx is relative and may change after moving each window.
     # Instead, we get the current workspace updated idx before each move.
     for window_id in $window_ids; do
-        niri msg action move-window-to-monitor "$(focused_output)" --id "$window_id"
         niri msg action move-window-to-workspace "$(get workspaces idx '.is_focused == true')" \
             --window-id "$window_id" --focus false
     done
@@ -197,7 +221,12 @@ calculate_grid_layout() {
     aspect_ratio=$(bc <<< "scale=2; $width / $height")
     rows=$(bc <<< "sqrt($elements * $aspect_ratio) / 1")
     [ "$rows" -eq 0 ] && rows=1
-    columns=$(bc <<< "($elements + $rows - 1) / $rows")
+    if [ "${aspect_ratio:0:1}" = . ]; then
+        columns=$rows
+        rows=$(bc <<< "($elements + $columns - 1) / $columns")
+    else
+        columns=$(bc <<< "($elements + $rows - 1) / $rows")
+    fi
     echo "$rows $columns"
 }
 
@@ -207,17 +236,9 @@ fit() {
     local height
     local rows
     local columns
-    if [ "$(wc -w <<<"$window_ids")" = 1 ]; then
-        niri msg action focus-window --id "$window_ids"
-        niri msg action set-window-width '100%' --id "$window_ids"
-        niri msg action set-window-height '100%' --id "$window_ids"
-        return 0
-    fi
-
     read -r width height < <(focused_output 'logical | "\(.width) \(.height)"')
     read -r rows columns < <(calculate_grid_layout "$width" "$height" "$(wc -w <<<"$window_ids")")
 
-    windo "$window_ids" '--id' '' move-window-to-tiling
     niri msg action focus-column-first
     for ((column = 0; column < columns; column++)); do
         for ((row = 1; row < rows; row++)); do
@@ -225,41 +246,124 @@ fit() {
         done
         niri msg action focus-column-right
     done
-    cell_width=$((width / columns))
-    windo "$window_ids" '--id' '' set-window-width "$cell_width"
+
+    windo "$window_ids" '--id' '' set-window-width "$((width / columns))"
     niri msg action focus-column-first
+}
+
+float_fit() {
+    local window_ids="$1"
+    local direction="$2"
+    local floating_zone_percent="$3"
+    local padding="$4"
+
+    local output_width
+    local output_height
+    read -r output_width output_height < <(focused_output 'logical | "\(.width) \(.height)"')
+
+    local floating_zone_width=$output_width
+    local floating_zone_height=$output_height
+    local rows
+    local columns
+    case "$direction" in
+        left|right) floating_zone_width=$((output_width * floating_zone_percent / 100));;
+        up|down) floating_zone_height=$((output_height * floating_zone_percent / 100));;
+        center)
+            local floating_zone_factor
+            floating_zone_factor=$(bc <<< "scale=4; sqrt($floating_zone_percent / 100)")
+            floating_zone_width=$(bc <<< "$output_width * $floating_zone_factor / 1")
+            floating_zone_height=$(bc <<< "$output_height * $floating_zone_factor / 1")
+            ;;
+    esac
+    read -r rows columns < <(calculate_grid_layout \
+        "$floating_zone_width" "$floating_zone_height" "$(wc -w <<<"$window_ids")")
+    local window_width=$((floating_zone_width / columns))
+    local window_height=$((floating_zone_height / rows))
+    windo "$window_ids" '--id' '' set-window-height $((window_height - (padding * 2)))
+    windo "$window_ids" '--id' '' set-window-width $((window_width - (padding * 2)))
+
+    local row=0
+    local column=0
+    local x
+    local y
+    for window_id in $window_ids; do
+        x=$((window_width * column + padding))
+        y=$((window_height * row + padding))
+        if [ "$direction" = right ]; then
+            x=$((output_width - window_width - (window_width * column)))
+        elif [ "$direction" = down ]; then
+            y=$((output_height - window_height - (window_height * row)))
+        elif [ "$direction" = center ]; then
+            x=$((output_width / 2 - floating_zone_width / 2 + x))
+            y=$((output_height / 2 - floating_zone_height / 2 + y))
+        fi
+        niri msg action move-floating-window --id "$window_id" --x "$x" --y "$y"
+        column=$((++column))
+        if [ "$column" = "$columns" ]; then
+            column=0
+            row=$((row + 1))
+        fi
+    done
 }
 
 flock() {
     local window_ids="$1"
     local to_output_name="$2"
     local to_workspace_reference="$3"
-    local mode="${4:-natural}"
+    local mode="$4"
+    local direction="$5"
+    local fit_or_max="$6"
+    local floating_zone_percent="$7"
+    local padding="$8"
 
     # Remember focused window (if any) before moving windows to restore focus later.
     local to_window_id
     to_window_id="$(get windows id '.is_focused == true')"
-    case "$mode" in
-        up|down)
-            [ "$to_workspace_reference" ] && error "--to-workspace cannot be used with mode $mode"
-            scatter "$window_ids" "$to_output_name" "$mode"
-            ;;
-        natural|fit)
-            [ "$to_workspace_reference" ] || to_workspace_reference="$(get workspaces name '.is_focused == true')"
 
+    [ "$to_output_name" ] || to_output_name="$(focused_output)"
+    windo "$window_ids" '--id' '' move-window-to-monitor "$to_output_name"
+
+    case "$mode" in
+        scatter) scatter "$window_ids" "$to_output_name" "$direction";;
+        *)
+            [ "$to_workspace_reference" ] || to_workspace_reference="$(get workspaces name '.is_focused == true')"
             niri msg action focus-monitor "$to_output_name"
             niri msg action focus-workspace "$to_workspace_reference"
 
-            # Scatter windows before fetch to break up existing stacks.
-            scatter "$window_ids" "$to_output_name" down
-
             fetch "$window_ids"
-            [ "$mode" = fit ] && fit "$window_ids"
-            ;;
+
+            if [ "$mode" = tile ]; then
+                windo "$window_ids" '--id' '' move-window-to-tiling
+                if [ "$fit_or_max" = fit ]; then
+                    # Scatter and refetch windows to break up existing stacks.
+                    # Just a hack till I write a cleaner solution.
+                    scatter "$window_ids" "$to_output_name" down && fetch "$window_ids"
+                    fit "$window_ids"
+                elif [ "$fit_or_max" = max ]; then
+                    windo "$window_ids" '--id' '' set-window-width '100%'
+                    windo "$window_ids" '--id' '' set-window-height '100%'
+                fi
+            elif [ "$mode" = float ]; then
+                windo "$window_ids" '--id' '' move-window-to-floating
+                if [ "$direction" ]; then
+                    float_fit "$window_ids" "$direction" "$floating_zone_percent" "$padding"
+                fi
+            fi
     esac
+
     if [ "$to_window_id" ]; then
         niri msg action focus-window --id "$to_window_id"
     fi
+}
+
+is_in() {
+    subject="$1"
+    shift
+    while [ $# -gt 0 ]; do
+        [ "$subject" = "$1" ] && return 0
+        shift
+    done
+    return 1
 }
 
 # Main entry point.
@@ -280,6 +384,10 @@ niriush() {
             local to_output_name
             local to_workspace_reference
             local mode
+            local direction
+            local fit_or_max
+            local floating_zone_percent=50
+            local padding=8
             local no_windows
             while [ $# -gt 0 ]; do
                 case "$1" in
@@ -300,7 +408,6 @@ niriush() {
                             break
                         fi
                         filters+=(".workspace_id == $workspace_id")
-                        shift
                         ;;
                     --output)
                         shift
@@ -310,7 +417,7 @@ niriush() {
                         else
                             output_name="$1"
                         fi
-                        shift
+
                         local output_workspace_ids
                         output_workspace_ids="$(get workspaces id ".output == \"$output_name\"")"
                         if [ -z "$output_workspace_ids" ]; then
@@ -324,76 +431,91 @@ niriush() {
                     --app-id)
                         shift
                         filters+=(".app_id | test(\"$1\"; \"i\")")
-                        shift
                         ;;
                     --title)
                         shift
                         filters+=(".title | test(\"$1\"; \"i\")")
-                        shift
                         ;;
                     --floating)
                         filters+=(".is_floating == true")
-                        shift
                         ;;
                     --tiled)
                         filters+=(".is_floating == false")
-                        shift
                         ;;
                     --focused)
                         filters+=(".is_focused == true")
-                        shift
                         ;;
                     --unfocused)
                         filters+=(".is_focused == false")
-                        shift
                         ;;
                     --filter)
                         shift
                         filters+=("$1")
-                        shift
                         ;;
                     --to-output)
                         [ "$command_name" != "flock" ] && error "$command_name does not support $1" usage
                         shift
                         to_output_name="$1"
-                        shift
                         ;;
                     --to-workspace)
                         [ "$command_name" != "flock" ] && error "$command_name does not support $1" usage
+                        [ "$mode" = scatter ] && error "$1 cannot be used with scatter mode" usage
                         shift
                         to_workspace_reference="$1"
-                        shift
                         ;;
                     --mode)
                         [ "$command_name" != "flock" ] && error "$command_name does not support $1" usage
                         [ "$mode" ] && error "Multiple arrangements specified" usage
                         shift
-                        case "$1" in
-                            natural|up|down|fit) mode="$1";;
+                        mode="$1"
+                        case "$mode" in
+                            float)
+                                if is_in "$2" right left up down center; then
+                                    direction="$2"
+                                    shift
+                                    if [ "$2" -gt 0 ] 2>/dev/null && [ "$2" -lt 101 ] 2>/dev/null; then
+                                        floating_zone_percent="$2"
+                                        shift
+                                        if [ "$2" -eq "$2" ] 2>/dev/null; then
+                                            padding="$2"
+                                            shift
+                                        fi
+                                    fi
+                                fi
+                                ;;
+                            scatter)
+                                [ "$to_workspace_reference" ] && error "--to-workspace cannot be used with $mode mode"
+                                if is_in "$2" down up; then
+                                    direction="$2"
+                                    shift
+                                fi
+                                ;;
+                            tile)
+                                if is_in "$2" fit max; then
+                                    fit_or_max="$2"
+                                    shift
+                                fi
+                                ;;
                             *) error "Unknown arrangement mode: $1" usage;;
                         esac
-                        shift
                         ;;
                     --id-flag)
                         [ "$command_name" != "windo" ] && error "$command_name does not support $1" usage
                         shift
                         windo_id_flag="$1"
-                        shift
                         ;;
                     --extra-args)
                         [ "$command_name" != "windo" ] && error "$command_name does not support $1" usage
                         shift
                         windo_extra_args="$1"
-                        shift
                         ;;
                     *)
                         [ "$command_name" != "windo" ] && error "unknown argument for $command_name: $1" usage
                         action+=("$1")
-                        shift
                         ;;
                 esac
+                shift
             done
-
 
             if [ "$no_windows" != true ]; then
                 window_ids="$(get windows id "${filters[@]}")"
@@ -406,11 +528,11 @@ niriush() {
 
             if [ "$command_name" = ids ]; then
                 echo "$window_ids"
+            elif [ "$command_name" = flock ]; then
+                flock "$window_ids" "$to_output_name" "$to_workspace_reference" \
+                    "$mode" "$direction" "$fit_or_max" "$floating_zone_percent" "$padding"
             elif [ "$command_name" = windo ]; then
                 windo "$window_ids" "$windo_id_flag" "$windo_extra_args" "${action[@]}"
-            elif [ "$command_name" = flock ]; then
-                [ "$to_output_name" ] || to_output_name="$(focused_output)"
-                flock "$window_ids" "$to_output_name" "$to_workspace_reference" "$mode"
             fi
         ;;
         *) error "Unknown command: $command_name" usage;;
