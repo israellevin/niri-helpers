@@ -114,7 +114,7 @@ expect '`conf --reset` restores include line in main config' \
 echo "=== Command line argument validation tests ==="
 
 expect error 'conflicting flags are disallowed' \
-    script -qec "$NIRIUSH flock --mode down --to-workspace 255" /dev/null
+    script -qec "$NIRIUSH flock --mode scatter --to-workspace 255" /dev/null
 
 $NIRIUSH conf --add 'layout { empty-workspace-above-first false; }'
 expect error 'unsupported flags are disallowed' \
@@ -211,8 +211,8 @@ windo --workspace focused move-window-to-floating
 expect '`windo --workspace` applies command to all windows in new workspace' \
     [ "$(count_floating)" =  "$NUMBER_OF_TEST_WINDOWS" ]
 
-flock --mode down
-expect '`flock --mode down` moves each window to its own workspace' \
+flock --mode scatter
+expect '`flock --mode scatter` moves each window to its own workspace' \
     [ "$(get windows workspace_id '.title == "niriushtest"' | sort -u | wc -w)" =  "$NUMBER_OF_TEST_WINDOWS" ]
 
 flock
@@ -258,7 +258,7 @@ else
     expect '`windo --output` applies only to windows on selected output' \
         [ "$(count_floating)" = $((NUMBER_OF_TEST_WINDOWS - 1)) ]
 
-    flock --output "$secondary_output" --to-output "$secondary_output" --mode down
+    flock --output "$secondary_output" --to-output "$secondary_output" --mode scatter
 
     secondary_output_workspace_ids="$(get workspaces id ".output == \"$secondary_output\"")"
     secondary_output_workspace_ids="$(tr '\n' ',' <<<"$secondary_output_workspace_ids")"
@@ -268,7 +268,7 @@ else
         sort -u | \
         wc -w
     )"
-    expect '`flock --mode down` creates a separate workspace for each flocked window' \
+    expect '`flock --mode scatter` creates a separate workspace for each flocked window' \
         [ "$number_of_arranged_workspaces" = $((NUMBER_OF_TEST_WINDOWS - 1)) ]
 
     mapfile -t secondary_output_window_ids < <(get windows id ".workspace_id | IN($secondary_output_workspace_ids)")
@@ -284,7 +284,7 @@ echo -e "Press any key (or wait) to continue, then ctrl-c (or wait) to finish th
 timeout -f 5 bash -c 'read -sn1' > /dev/null 2>&1
 
 niri msg action focus-window-previous
-flock --mode fit
+flock --mode tile fit
 start_time=$(date +%s)
 while [ "$(($(date +%s) - start_time))" -lt 5 ]; do
     for id in "${test_window_ids[@]}"; do
