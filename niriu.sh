@@ -15,6 +15,7 @@ Commands:
 Configuration manipulation options for 'config' (can be combined - the effects are applied in order):
   --add LINE                  Add LINE (if not found) to the dynamic niriush configuration file
   --rm LINE                   Remove LINE (if found) from the dynamic niriush configuration file
+  --rm-re REGEX               Remove all lines matching grep REGEX from the dynamic niriush configuration file
   --toggle LINE               Toggle LINE in the dynamic niriush configuration file
   --reset                     Reset the dynamic niriush configuration file to default state
 Window selection options for 'flock', 'ids' and 'windo' (can be combined - windows must match all criteria):
@@ -53,7 +54,7 @@ error() {
         [ "$details" ] && echo -e "$details\n" >&2
         [ "$show_usage" ] && usage >&2
     else
-        notify-send -a 'niriu.sh error' -u critical "$message" "'$NIRIU_SH_COMMAND' failed at line ${BASH_LINENO[0]}"
+        notify-send -a 'niriu.sh error' -u critical "$message" "$details"
     fi
     exit 1
 }
@@ -88,6 +89,13 @@ toggleconf() {
     fi
 }
 
+rmconfre() {
+    if grep -qx "$1" "$DYNAMIC_NIRIUSH_CONFIG_FILE"; then
+        grep -vx "$1" "$DYNAMIC_NIRIUSH_CONFIG_FILE" > "$DYNAMIC_NIRIUSH_CONFIG_FILE.tmp"
+        mv "$DYNAMIC_NIRIUSH_CONFIG_FILE.tmp" "$DYNAMIC_NIRIUSH_CONFIG_FILE"
+    fi
+}
+
 check_configuration_files() {
     if ! grep -qxF "include \"$DYNAMIC_NIRIUSH_CONFIG_FILE\"" "$NIRI_CONFIG_FILE"; then
         [ -t 0 ] || error "Please include $DYNAMIC_NIRIUSH_CONFIG_FILE in $NIRI_CONFIG_FILE"
@@ -107,6 +115,7 @@ configure() {
             --add) shift; addconf "$1";;
             --rm) shift; rmconf "$1";;
             --toggle) shift; toggleconf "$1";;
+            --rm-re) shift; rmconfre "$1";;
             --reset) resetconf;;
             *) error "Unknown configuration command: $1" usage;;
         esac
@@ -138,7 +147,7 @@ focused_output() {
 }
 
 windo() {
-    # Remember to consume first arguments, so that `$@` contains only the action.
+    # Consume first arguments so that `$@` contains only the action.
     local window_ids="$1"
     shift
     local window_id_flag="$1"
@@ -186,7 +195,7 @@ calculate_grid_layout() {
     local rows
     local columns
     aspect_ratio=$(bc <<< "scale=2; $width / $height")
-    rows=$(bc <<< "scale=0; sqrt($elements * $aspect_ratio)/1")
+    rows=$(bc <<< "sqrt($elements * $aspect_ratio) / 1")
     [ "$rows" -eq 0 ] && rows=1
     columns=$(bc <<< "($elements + $rows - 1) / $rows")
     echo "$rows $columns"
@@ -412,6 +421,5 @@ niriush() {
 # shellcheck disable=SC2317  # This makes semantic sense if you consider sourcing vs executing.
 if ! return 0 2>/dev/null; then
     set -Eeo pipefail
-    NIRIU_SH_COMMAND="$0 $*"
     niriush "$@"
 fi
