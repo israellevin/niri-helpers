@@ -18,7 +18,7 @@ A simple CLI niri event dispatcher written in Rust which listens on the niri soc
 
 This is extremely powerful (in theory you could use it to write a whole new window manager on top of niri) and that makes it very easy to screw up your system - specifically to throw it into an infinite loop of events which trigger commands which trigger more events and so on.
 
-My humble usage example is listening for the `WindowClosed` event, then checking if there are any windows left on the currently focused workspace, and if not, attempting to automatically switch to the previously focused window.
+My humble usage examples are inside `./ned/examples` and include things like sticky floating windows that move to whatever workspace you focus; changing window layout configuration according to keyboard layout switching; and switching back to the last occupied workspace after closing the last window on a workspace.
 
 For more information see [ned docs](./ned/README.md).
 
