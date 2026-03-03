@@ -115,22 +115,23 @@ teardown_file() {
 }
 
 setup() {
-    load './test/test_helper/bats-support/load'
-    load './test/test_helper/bats-assert/load'
     cd "$(dirname "$BATS_TEST_FILENAME")" || exit 1
     windo move-window-to-tiling
 }
 
 # bats test_tags=cli
 @test 'show usage' {
-    run -0 $NIRIUSH --help
-    assert_output --partial 'Manage niri windows, workspaces, and configuration dynamically'
+    run -0 --separate-stderr $NIRIUSH --help
+    [ "${lines[1]}" = 'Manage niri windows, workspaces, and configuration dynamically.' ]
 }
 
 # bats test_tags=cli
 @test 'conflicting options are rejected' {
-    run -1 script -qec "$NIRIUSH flock --mode scatter --to-workspace 255" /dev/null
-    assert_output --partial 'niriu.sh error: --to-workspace cannot be used with scatter mode'
+    local error
+    run -1 script -qec 'niriu.sh flock --mode scatter --to-workspace 1 2>&1 1>/dev/null' tmp
+    error="$(tail -n+2 tmp | head -n1)"
+    rm tmp
+    [ "$error" = 'niriu.sh error: --to-workspace cannot be used with scatter mode'$'\r' ]
 }
 
 # bats test_tags=conf
