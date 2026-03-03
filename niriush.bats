@@ -12,7 +12,7 @@ get() {
     shift
     local filter='.[]'
     while [ $# -gt 0 ]; do
-        filter="$filter | select(.$1)"
+        filter="$filter | select($1)"
         shift
     done
     niri msg --json "$object_type" | jq -r "$filter | .$property"
@@ -21,28 +21,59 @@ get() {
 getwin() {
     local property="$1"
     shift
-    get windows "$property" "title == \"$TEST_TITLE\"" "$@"
+    get windows "$property" ".title == \"$TEST_TITLE\"" "$@"
+}
+
+getwinid() {
+    local result
+    result="$(getwin id "$@")"
+
+    # Compare with niriush result for the same filters.
+    local niriush_result
+    local niriush_command="$NIRIUSH ids --title \"$TEST_TITLE\""
+    while [ $# -gt 0 ]; do
+        niriush_command+=" --filter '$1'"
+        shift
+    done
+    niriush_result="$(sh -c "$niriush_command")"
+    sorted_niriush_result="$(sort <<<"$niriush_result")"
+    sorted_result="$(sort <<<"$result")"
+    [ "$sorted_niriush_result" = "$sorted_result" ]
+
+    echo "$result"
 }
 
 countwin() {
-    getwin id "$@" | wc -w
+    getwinid "$@" | wc -w
 }
 
 countfloating() {
-    countwin 'is_floating == true'
+    local result
+    result="$(countwin '.is_floating == true')"
+
+    # Compare with niriush result for the `--floating` option.
+    local niriush_result
+    niriush_result="$(sh -c "$NIRIUSH ids --title \"$TEST_TITLE\" --floating | wc -w")"
+    [ "$niriush_result" -eq "$result" ]
+
+    echo "$result"
 }
 
 windo() {
     local action="$1"
     shift
-    getwin id "$@" | xargs -I{} niri msg action "$action" --id {}
+    getwinid "$@" | xargs -I{} niri msg action "$action" --id {}
+}
+
+scatter() {
+    getwinid | xargs -I{} niri msg action move-window-to-workspace 255 --window-id {}
 }
 
 setup_file() {
     cp "$NIRI_CONFIG_FILE" "$NIRI_CONFIG_FILE".bak
     cp "$DYNAMIC_NIRIUSH_CONFIG_FILE" "$DYNAMIC_NIRIUSH_CONFIG_FILE".bak
 
-    INITIAL_WINDOW_ID="$(get windows id 'is_focused == true')"
+    INITIAL_WINDOW_ID="$(get windows id '.is_focused == true')"
     export INITIAL_WINDOW_ID
 
     mapfile -t output_names < <(get outputs name)
@@ -66,8 +97,8 @@ setup_file() {
         foot -f 'mono:size=32' -T niriushtest sh -c "echo -n '$windo_index'; sleep infinity 3>&-" 3>&- &
         sleep 0.1
     done
-    mapfile -t window_ids < <(getwin id)
-    echo "# Created $NUMBER_OF_TEST_WINDOWS test windows with IDs: ${window_ids[*]}" >&3
+    mapfile -t window_ids < <(getwinid)
+    echo "# Created ${#window_ids[@]} test windows with IDs: ${window_ids[*]}" >&3
     # Bats doesn't support arrays as environment variables.
     export WINDOW_IDS="${window_ids[*]}"
 }
@@ -81,12 +112,6 @@ teardown_file() {
     echo "# Returning focus to initial window ID: $INITIAL_WINDOW_ID" >&3
     sleep 0.1
     niri msg action focus-window --id "$INITIAL_WINDOW_ID"
-}
-
-scatter() {
-    for window_id in $WINDOW_IDS; do
-        niri msg action move-window-to-workspace 255 --window-id "$window_id"
-    done
 }
 
 setup() {
@@ -171,7 +196,7 @@ setup() {
 
     # Match only another workspace.
     local target_workspace_idx
-    target_workspace_idx="$(get workspaces idx 'is_focused == true')"
+    target_workspace_idx="$(get workspaces idx '.is_focused == true')"
     niri msg action focus-window --id "${WINDOW_IDS##* }"
     run -0 $NIRIUSH windo --title "$TEST_TITLE" --workspace "$target_workspace_idx" move-window-to-floating
     [ "$(countfloating)" -eq "$NUMBER_OF_TEST_WINDOWS" ]
