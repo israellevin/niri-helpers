@@ -15,7 +15,7 @@ curl -Lo niriu.sh https://raw.githubusercontent.com/israellevin/niriush/master/n
 bash niriu.sh help
 ```
 
-All of the niriu.sh commands can be launched from key bindings defined with `spawn` or `spawn-sh` and script errors will be sent as notifications when there is no terminal connected to standard error.
+All of the niriu.sh commands can be launched from key bindings defined with `spawn` or `spawn-sh`. You can set the environment variable `NIRIUSH_ERROR_NOTIFY` to have script errors sent as notifications to your notification daemon with `notify-send` (make sure you have a notification daemon running and that `notify-send` is available on your system for this to work).
 
 ### flock - Workspace Management
 

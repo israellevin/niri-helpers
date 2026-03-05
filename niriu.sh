@@ -74,22 +74,27 @@ General Options:
 EOF
 }
 
-# niriu.sh is called primarily from key binds with no terminal, so desktop notifications for errors.
 error() {
+    trap - ERR
+    set +Eeo pipefail
+
     local message="$1"
     local show_usage="$2"
     local details
+    local level
     if [ -z "$message" ]; then
         message="${BASH_SOURCE[0]} failed on line ${BASH_LINENO[0]}"
-        details=">>>$(head -n "${BASH_LINENO[0]}" "${BASH_SOURCE[0]}" | tail -n 1)"
+        for (( level=${#FUNCNAME[@]}-1; level; level-- )); do
+            details+="${BASH_SOURCE[level-1]}:${BASH_LINENO[level-1]}(${FUNCNAME[level]}):\n>>> "
+            details+="$(head -n"${BASH_LINENO[level-1]}" "${BASH_SOURCE[level-1]}" | tail -n1 | xargs)\n"
+        done
     fi
-    if [ -t 2 ]; then
-        echo -e "niriu.sh error: $message\n" >&2
-        [ "$details" ] && echo -e "$details\n" >&2
-        [ "$show_usage" ] && usage >&2
-    else
-        notify-send -a 'niriu.sh error' -u critical "$message" "$details"
-    fi
+
+    echo "niriu.sh error: $message" >&2
+    [ "$details" ] && echo -e "$details" >&2
+    [ "$show_usage" ] && usage >&2
+    [ "$NOTIFY_ERRORS" ] && notify-send -a 'niriu.sh error' -u critical "$message" ${details+"$details"}
+
     exit 1
 }
 trap error ERR
@@ -484,7 +489,7 @@ niriush() {
                                 fi
                                 ;;
                             scatter)
-                                [ "$to_workspace_reference" ] && error "--to-workspace cannot be used with $mode mode"
+                                [ "$to_workspace_reference" ] && error "to-workspace cannot be used with $mode mode"
                                 if is_in "$2" down up; then
                                     direction="$2"
                                     shift
