@@ -1,7 +1,7 @@
 bats_require_minimum_version 1.5.0
 NUMBER_OF_TEST_WINDOWS="${NUMBER_OF_TEST_WINDOWS:-5}"
 NIRI_CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/niri/config.kdl"
-DYNAMIC_NIRIUSH_CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/niri/niriush.kdl"
+NIRIUSH_DYNAMIC_CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/niri/niriush.kdl"
 TEST_TITLE=niriushtest
 NIRIUSH=./niriu.sh
 
@@ -59,6 +59,44 @@ countfloating() {
     echo "$result"
 }
 
+countinworkspace() {
+    local result
+    local workspace_id
+    local workspace_idx
+    local floating_filter
+    local floating_flag
+
+    # If the argument is a number treat it as a workspace id, otherwise use focused workspace.
+    if [ "$1" -eq "$1" ] 2>/dev/null; then
+        workspace_id="$1"
+        workspace_idx="get workspaces idx \".id == $workspace_id\""
+        shift
+    else
+        workspace_id="$(get workspaces id '.is_focused == true')"
+        workspace_idx="focused"
+    fi
+
+    # If the next argument is `floating` count only floating windows in the workspace.
+    if [ "$1" = "floating" ]; then
+        floating_filter=".is_floating == true"
+        floating_flag="--floating"
+        shift
+    fi
+
+    result="$(countwin ".workspace_id == $workspace_id" ${floating_filter+"$floating_filter"})"
+
+    # Compare with niriush result for the `--workspace` option.
+    local niriush_result
+    niriush_result="$(sh -c \
+        "$NIRIUSH ids --title \"$TEST_TITLE\" \
+        --workspace $workspace_idx ${floating_flag+$floating_flag} \
+    | wc -w \
+    ")"
+    [ "$niriush_result" -eq "$result" ]
+
+    echo "$result"
+}
+
 windo() {
     local action="$1"
     shift
@@ -70,9 +108,6 @@ scatter() {
 }
 
 setup_file() {
-    cp "$NIRI_CONFIG_FILE" "$NIRI_CONFIG_FILE".bak
-    cp "$DYNAMIC_NIRIUSH_CONFIG_FILE" "$DYNAMIC_NIRIUSH_CONFIG_FILE".bak
-
     INITIAL_WINDOW_ID="$(get windows id '.is_focused == true')"
     export INITIAL_WINDOW_ID
 
@@ -97,26 +132,38 @@ setup_file() {
         foot -f 'mono:size=32' -T niriushtest sh -c "echo -n '$windo_index'; sleep infinity 3>&-" 3>&- &
         sleep 0.1
     done
-    mapfile -t window_ids < <(getwinid)
+    mapfile -t window_ids < <(getwinid | sort -n)
     echo "# Created ${#window_ids[@]} test windows with IDs: ${window_ids[*]}" >&3
     # Bats doesn't support arrays as environment variables.
     export WINDOW_IDS="${window_ids[*]}"
 }
 
 teardown_file() {
-    mv "$NIRI_CONFIG_FILE".bak "$NIRI_CONFIG_FILE"
-    mv "$DYNAMIC_NIRIUSH_CONFIG_FILE".bak "$DYNAMIC_NIRIUSH_CONFIG_FILE"
-    niri msg action load-config-file
-
     windo close-window
+    sleep "$(bc <<<"scale=2; 0.1 * $NUMBER_OF_TEST_WINDOWS")"
+
     echo "# Returning focus to initial window ID: $INITIAL_WINDOW_ID" >&3
-    sleep 0.1
     niri msg action focus-window --id "$INITIAL_WINDOW_ID"
 }
 
 setup() {
     cd "$(dirname "$BATS_TEST_FILENAME")" || exit 1
+
+    cp "$NIRI_CONFIG_FILE" "$NIRI_CONFIG_FILE".bak
+    cp "$NIRIUSH_DYNAMIC_CONFIG_FILE" "$NIRIUSH_DYNAMIC_CONFIG_FILE".bak
+
+    # Long animations can cause delays and flakiness in tests, so disable them during testing.
+    local testing_config_file=/tmp/niriush_testing_config.kdl
+    echo 'animations { off; }' > "$testing_config_file"
+    echo "include \"$testing_config_file\"" >> "$NIRI_CONFIG_FILE"
+    niri msg action load-config-file
     windo move-window-to-tiling
+}
+
+teardown() {
+    mv "$NIRI_CONFIG_FILE".bak "$NIRI_CONFIG_FILE"
+    mv "$NIRIUSH_DYNAMIC_CONFIG_FILE".bak "$NIRIUSH_DYNAMIC_CONFIG_FILE"
+    niri msg action load-config-file
 }
 
 # bats test_tags=cli
@@ -136,7 +183,7 @@ setup() {
 
 # bats test_tags=conf
 @test 'conf manipulates dynamic configuration file (--reset, --add, --rm, --toggle, --rm-re)' {
-    local include_line="include \"$DYNAMIC_NIRIUSH_CONFIG_FILE\""
+    local include_line="include \"$NIRIUSH_DYNAMIC_CONFIG_FILE\""
     grep -vxF "$include_line" "$NIRI_CONFIG_FILE" > "$NIRI_CONFIG_FILE".tmp
     mv "$NIRI_CONFIG_FILE".tmp "$NIRI_CONFIG_FILE"
     run -1 script -qec "echo n | $NIRIUSH conf --reset" /dev/null
@@ -145,21 +192,65 @@ setup() {
 
     local test_line='// configuration test line'
     run -0 $NIRIUSH conf --add "$test_line"
-    grep -qxF "$test_line" "$DYNAMIC_NIRIUSH_CONFIG_FILE"
+    grep -qxF "$test_line" "$NIRIUSH_DYNAMIC_CONFIG_FILE"
     run -0 $NIRIUSH conf --add "$test_line"
-    [ "$(grep -cxF "$test_line" "$DYNAMIC_NIRIUSH_CONFIG_FILE")" -eq 1 ]
+    [ "$(grep -cxF "$test_line" "$NIRIUSH_DYNAMIC_CONFIG_FILE")" -eq 1 ]
     run -0 $NIRIUSH conf --rm "$test_line"
-    [ "$(grep -cxF "$test_line" "$DYNAMIC_NIRIUSH_CONFIG_FILE")" -eq 0 ]
+    [ "$(grep -cxF "$test_line" "$NIRIUSH_DYNAMIC_CONFIG_FILE")" -eq 0 ]
     run -0 $NIRIUSH conf --rm "$test_line"
     run -0 $NIRIUSH conf --toggle "$test_line"
-    [ "$(grep -cxF "$test_line" "$DYNAMIC_NIRIUSH_CONFIG_FILE")" -eq 1 ]
+    [ "$(grep -cxF "$test_line" "$NIRIUSH_DYNAMIC_CONFIG_FILE")" -eq 1 ]
     run -0 $NIRIUSH conf --toggle "$test_line"
-    [ "$(grep -cxF "$test_line" "$DYNAMIC_NIRIUSH_CONFIG_FILE")" -eq 0 ]
+    [ "$(grep -cxF "$test_line" "$NIRIUSH_DYNAMIC_CONFIG_FILE")" -eq 0 ]
     run -0 $NIRIUSH conf --add "$test_line"
-    [ "$(grep -cxF "$test_line" "$DYNAMIC_NIRIUSH_CONFIG_FILE")" -eq 1 ]
+    [ "$(grep -cxF "$test_line" "$NIRIUSH_DYNAMIC_CONFIG_FILE")" -eq 1 ]
     run -0 $NIRIUSH conf --rm-re "${test_line:0:5}.*"
-    grep -cxF "$test_line" "$DYNAMIC_NIRIUSH_CONFIG_FILE" || true >&3
-    [ "$(grep -cxF "$test_line" "$DYNAMIC_NIRIUSH_CONFIG_FILE")" -eq 0 ]
+    grep -cxF "$test_line" "$NIRIUSH_DYNAMIC_CONFIG_FILE" || true >&3
+    [ "$(grep -cxF "$test_line" "$NIRIUSH_DYNAMIC_CONFIG_FILE")" -eq 0 ]
+}
+
+# bats test_tags=flock
+@test 'flock brings windows to the target workspace in the selected mode' {
+    [ "$NUMBER_OF_TEST_WINDOWS" -lt 2 ] && skip
+
+    # Each window in its own workspace, first window floating, then focus a new empty workspace.
+    scatter
+    niri msg action move-window-to-floating --id "${WINDOW_IDS%% *}"
+    niri msg action focus-window --id "${WINDOW_IDS%% *}"
+    [ "$(countfloating)" -eq 1 ]
+    [ "$(countinworkspace)" -eq 1 ]
+    [ "$(countinworkspace floating)" -eq 1 ]
+
+    niri msg action focus-workspace 255
+    [ "$(countinworkspace)" -eq 0 ]
+    local home_workspace
+    home_workspace="$(get workspaces id '.is_focused == true')"
+
+    run -0 $NIRIUSH flock --title "$TEST_TITLE"
+    [ "$(countfloating)" -eq 1 ]
+    [ "$(countinworkspace)" -eq "$NUMBER_OF_TEST_WINDOWS" ]
+    [ "$(countinworkspace floating)" -eq 1 ]
+
+    run -0 $NIRIUSH flock --title "$TEST_TITLE" --to-workspace 255
+    [ "$(countfloating)" -eq 1 ]
+    [ "$(countinworkspace "$home_workspace")" -eq 0 ]
+
+    run -0 $NIRIUSH flock --title "$TEST_TITLE" --mode float
+    [ "$(countfloating)" -eq "$NUMBER_OF_TEST_WINDOWS" ]
+    [ "$(countinworkspace)" -eq "$NUMBER_OF_TEST_WINDOWS" ]
+    [ "$(countinworkspace floating)" -eq "$NUMBER_OF_TEST_WINDOWS" ]
+
+    run -0 $NIRIUSH flock --title "$TEST_TITLE" --mode tile --to-workspace 255
+    [ "$(countinworkspace "$home_workspace")" -eq 0 ]
+    [ "$(countfloating)" -eq 0 ]
+
+    run -0 $NIRIUSH flock --title "$TEST_TITLE" --mode float --to-workspace 255
+    [ "$(countinworkspace "$home_workspace")" -eq 0 ]
+    [ "$(countfloating)" -eq "$NUMBER_OF_TEST_WINDOWS" ]
+
+    run -0 $NIRIUSH flock --title "$TEST_TITLE" --mode tile
+    [ "$(countinworkspace)" -eq "$NUMBER_OF_TEST_WINDOWS" ]
+    [ "$(countfloating)" -eq 0 ]
 }
 
 # bats test_tags=windo
@@ -172,7 +263,7 @@ setup() {
 }
 
 # bats test_tags=windo
-@test 'windo matches and moves windows across workspaces' {
+@test 'windo matches'  {
     [ "$NUMBER_OF_TEST_WINDOWS" -lt 2 ] && skip
 
     # Act when all windows are on a single workspace.
@@ -201,4 +292,18 @@ setup() {
     niri msg action focus-window --id "${WINDOW_IDS##* }"
     run -0 $NIRIUSH windo --title "$TEST_TITLE" --workspace "$target_workspace_idx" move-window-to-floating
     [ "$(countfloating)" -eq "$NUMBER_OF_TEST_WINDOWS" ]
+
+    # Check focused and unfocused, floating and tiling.
+    niri msg action focus-window --id "${WINDOW_IDS%% *}"
+    run -0 $NIRIUSH windo --title "$TEST_TITLE" --unfocused move-window-to-tiling
+    [ "$(countfloating)" -eq 1 ]
+    niri msg action focus-window --id "${WINDOW_IDS%% *}"
+    run -1 $NIRIUSH windo --title "$TEST_TITLE" --unfocused --floating move-window-to-tiling
+    run -0 $NIRIUSH windo --title "$TEST_TITLE" --floating move-window-to-tiling
+    [ "$(countfloating)" -eq 0 ]
+    run -1 $NIRIUSH windo --title "$TEST_TITLE" --focused --floating move-window-to-floating
+    run -0 $NIRIUSH windo --title "$TEST_TITLE" --focused move-window-to-floating
+    [ "$(countfloating)" -eq 1 ]
+    run -1 $NIRIUSH windo --title "$TEST_TITLE" --focused --tiled move-window-to-tiling
+    run -0 $NIRIUSH windo --title "$TEST_TITLE" --focused --floating move-window-to-tiling
 }
