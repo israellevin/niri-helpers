@@ -175,7 +175,9 @@ get() {
         filter="$filter | select($1)"
         shift
     done
-    niri msg --json "$object_type" | jq -r "$filter | .$property"
+    if ! niri msg --json "$object_type" | jq -r "$filter | .$property"; then
+        echo "Error getting '$property' of '$object_type' with filter '$filter'" >&2
+    fi
 }
 
 # A specific getter for the currently focused output.
