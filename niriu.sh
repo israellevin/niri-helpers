@@ -25,7 +25,7 @@ Configuration manipulation options for 'conf' (can be combined - the effects are
         Reset the dynamic niriush configuration file to default state
 Window selection options for ' flock' and 'windo' (can be combined - windows must match all criteria):
   --workspace REFERENCE
-        Select windows by workspace index, name, or 'focused'
+        Select windows by workspace name, index (on all outputs), or 'focused'
   --output REFERENCE
         Select windows by output name or 'focused'
   --app-id APP_ID
@@ -76,7 +76,6 @@ EOF
 
 error() {
     trap - ERR
-    set +Eeo pipefail
 
     local message="$1"
     local show_usage="$2"
@@ -398,21 +397,24 @@ niriush() {
                 case "$1" in
                     --workspace)
                         shift
-                        local workspace_id
+                        # A workspace idx can be resolved to multiple workspace ids if there are multiple outputs.
+                        local workspace_ids
                         if [ "$1" = "focused" ]; then
-                            workspace_id=$(get workspaces id '.is_focused == true')
+                            workspace_ids=$(get workspaces id '.is_focused == true')
                         else
                             if [ "$1" -eq "$1" ] 2>/dev/null; then
-                                workspace_id=$(get workspaces id ".idx == $1")
+                                workspace_ids=$(get workspaces id ".idx == $1")
                             else
-                                workspace_id=$(get workspaces id ".name == \"$1\"")
+                                workspace_ids=$(get workspaces id ".name == \"$1\"")
                             fi
                         fi
-                        if [ -z "$workspace_id" ]; then
+                        if [ -z "$workspace_ids" ]; then
                             no_windows=true
                             break
                         fi
-                        filters+=(".workspace_id == $workspace_id")
+                        workspace_ids="$(tr '\n' ',' <<<"$workspace_ids")"
+                        workspace_ids="${workspace_ids%,}"
+                        filters+=(".workspace_id | IN($workspace_ids)")
                         ;;
                     --output)
                         shift
@@ -430,8 +432,8 @@ niriush() {
                             break
                         fi
                         output_workspace_ids="$(tr '\n' ',' <<<"$output_workspace_ids")"
-                        output_workspace_ids="(${output_workspace_ids%,})"
-                        filters+=(".workspace_id | in($output_workspace_ids)")
+                        output_workspace_ids="${output_workspace_ids%,}"
+                        filters+=(".workspace_id | IN($output_workspace_ids)")
                         ;;
                     --app-id)
                         shift

@@ -182,7 +182,7 @@ Configuration manipulation options for 'conf' (can be combined - the effects are
         Reset the dynamic niriush configuration file to default state
 Window selection options for ' flock' and 'windo' (can be combined - windows must match all criteria):
   --workspace REFERENCE
-        Select windows by workspace index, name, or 'focused'
+        Select windows by workspace name, index (on all outputs), or 'focused'
   --output REFERENCE
         Select windows by output name or 'focused'
   --app-id APP_ID
