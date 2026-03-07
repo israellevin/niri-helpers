@@ -63,6 +63,7 @@ countinworkspace() {
     local result
     local workspace_id
     local workspace_idx
+    local workspace_output
     local floating_filter
     local floating_flag
 
@@ -70,10 +71,12 @@ countinworkspace() {
     if [ "$1" -eq "$1" ] 2>/dev/null; then
         workspace_id="$1"
         workspace_idx="get workspaces idx \".id == $workspace_id\""
+        workspace_output="get workspaces output \".id == $workspace_id\""
         shift
     else
         workspace_id="$(get workspaces id '.is_focused == true')"
         workspace_idx="focused"
+        workspace_output="get workspaces output '.is_focused == true'"
     fi
 
     # If the next argument is `floating` count only floating windows in the workspace.
@@ -89,7 +92,9 @@ countinworkspace() {
     local niriush_result
     niriush_result="$(sh -c \
         "$NIRIUSH ids --title \"$TEST_TITLE\" \
-        --workspace $workspace_idx ${floating_flag+$floating_flag} \
+        --workspace $workspace_idx \
+        --output \"\$($workspace_output)\" \
+        ${floating_flag+$floating_flag} \
     | wc -w \
     ")"
     [ "$niriush_result" -eq "$result" ]
@@ -100,7 +105,8 @@ countinworkspace() {
 windo() {
     local action="$1"
     shift
-    getwinid "$@" | xargs -I{} niri msg action "$action" --id {}
+    # shellcheck disable=SC2086  # Intended word splitting for action.
+    getwinid "$@" | xargs -I{} niri msg action $action --id {}
 }
 
 scatter() {
@@ -114,7 +120,10 @@ setup_file() {
     mapfile -t output_names < <(get outputs name)
     NUMBER_OF_OUTPUTS="${#output_names[@]}"
     export NUMBER_OF_OUTPUTS
-    if [ "$NUMBER_OF_OUTPUTS" -lt 2 ]; then
+    if [ "$NUMBER_OF_OUTPUTS" -lt 1 ]; then
+        echo "# No outputs detected, aborting tests" >&3
+        exit 1
+    elif [ "$NUMBER_OF_OUTPUTS" -lt 2 ]; then
         echo "# Only one output detected, multi output tests will be skipped" >&3
     else
         PRIMARY_OUTPUT="$(niri msg --json focused-output | jq -r '.name')"
@@ -141,7 +150,6 @@ setup_file() {
 teardown_file() {
     windo close-window
     sleep "$(bc <<<"scale=2; 0.1 * $NUMBER_OF_TEST_WINDOWS")"
-
     echo "# Returning focus to initial window ID: $INITIAL_WINDOW_ID" >&3
     niri msg action focus-window --id "$INITIAL_WINDOW_ID"
 }
@@ -157,7 +165,19 @@ setup() {
     echo 'animations { off; }' > "$testing_config_file"
     echo "include \"$testing_config_file\"" >> "$NIRI_CONFIG_FILE"
     niri msg action load-config-file
-    windo move-window-to-tiling
+
+    # Initial state: new workspace on the primary output, with all windows tiled and the first focused.
+    [ "$PRIMARY_OUTPUT" ] && niri msg action focus-monitor "$PRIMARY_OUTPUT"
+    niri msg action focus-workspace 255
+    for id in $WINDOW_IDS; do
+        [ "$PRIMARY_OUTPUT" ] && niri msg action move-window-to-monitor "$PRIMARY_OUTPUT" --id "$id"
+        niri msg action move-window-to-tiling --id "$id"
+        niri msg action move-window-to-workspace \
+            "$(get workspaces idx '.is_focused == true')" \
+            --window-id "$id" --focus false
+    done
+    [ "$(countinworkspace)" -eq 5 ]
+    [ "$(countfloating)" -eq 0 ]
 }
 
 teardown() {
@@ -182,7 +202,7 @@ teardown() {
 }
 
 # bats test_tags=conf
-@test 'conf manipulates dynamic configuration file (--reset, --add, --rm, --toggle, --rm-re)' {
+@test 'conf manipulates dynamic configuration file' {
     local include_line="include \"$NIRIUSH_DYNAMIC_CONFIG_FILE\""
     grep -vxF "$include_line" "$NIRI_CONFIG_FILE" > "$NIRI_CONFIG_FILE".tmp
     mv "$NIRI_CONFIG_FILE".tmp "$NIRI_CONFIG_FILE"
@@ -205,12 +225,11 @@ teardown() {
     run -0 $NIRIUSH conf --add "$test_line"
     [ "$(grep -cxF "$test_line" "$NIRIUSH_DYNAMIC_CONFIG_FILE")" -eq 1 ]
     run -0 $NIRIUSH conf --rm-re "${test_line:0:5}.*"
-    grep -cxF "$test_line" "$NIRIUSH_DYNAMIC_CONFIG_FILE" || true >&3
     [ "$(grep -cxF "$test_line" "$NIRIUSH_DYNAMIC_CONFIG_FILE")" -eq 0 ]
 }
 
 # bats test_tags=flock
-@test 'flock brings windows to the target workspace in the selected mode' {
+@test "flock brings windows to the target workspace ${SECONDARY_OUTPUT+and output }in the selected mode" {
     [ "$NUMBER_OF_TEST_WINDOWS" -lt 2 ] && skip
 
     # Each window in its own workspace, first window floating, then focus a new empty workspace.
@@ -220,41 +239,52 @@ teardown() {
     [ "$(countfloating)" -eq 1 ]
     [ "$(countinworkspace)" -eq 1 ]
     [ "$(countinworkspace floating)" -eq 1 ]
-
     niri msg action focus-workspace 255
     [ "$(countinworkspace)" -eq 0 ]
     local home_workspace
     home_workspace="$(get workspaces id '.is_focused == true')"
 
+    # Optionally change output for the multiple outputs test.
+    [ "$SECONDARY_OUTPUT" ] && niri msg action focus-monitor "$SECONDARY_OUTPUT"
+
+    # Fetch windows to current workspace without changing states.
     run -0 $NIRIUSH flock --title "$TEST_TITLE"
     [ "$(countfloating)" -eq 1 ]
     [ "$(countinworkspace)" -eq "$NUMBER_OF_TEST_WINDOWS" ]
     [ "$(countinworkspace floating)" -eq 1 ]
 
-    run -0 $NIRIUSH flock --title "$TEST_TITLE" --to-workspace 255
+    # Send windows to a new workspace (and optionally output) without changing states.
+    run -0 $NIRIUSH flock --title "$TEST_TITLE" --to-workspace 255 \
+        ${SECONDARY_OUTPUT+--to-output "$PRIMARY_OUTPUT"}
     [ "$(countfloating)" -eq 1 ]
     [ "$(countinworkspace "$home_workspace")" -eq 0 ]
 
+    # Fetch windows to current workspace and make them floating.
     run -0 $NIRIUSH flock --title "$TEST_TITLE" --mode float
     [ "$(countfloating)" -eq "$NUMBER_OF_TEST_WINDOWS" ]
     [ "$(countinworkspace)" -eq "$NUMBER_OF_TEST_WINDOWS" ]
     [ "$(countinworkspace floating)" -eq "$NUMBER_OF_TEST_WINDOWS" ]
 
-    run -0 $NIRIUSH flock --title "$TEST_TITLE" --mode tile --to-workspace 255
+    # Send windows to a new workspace (and optionally output) and make them tiled.
+    run -0 $NIRIUSH flock --title "$TEST_TITLE" --mode tile --to-workspace 255 \
+        ${SECONDARY_OUTPUT+--to-output "$PRIMARY_OUTPUT"}
     [ "$(countinworkspace "$home_workspace")" -eq 0 ]
     [ "$(countfloating)" -eq 0 ]
 
-    run -0 $NIRIUSH flock --title "$TEST_TITLE" --mode float --to-workspace 255
+    # Send windows to a new workspace (and optionally back to the previous output) and make them floating.
+    run -0 $NIRIUSH flock --title "$TEST_TITLE" --mode float --to-workspace 255 \
+        ${SECONDARY_OUTPUT+--to-output "$PRIMARY_OUTPUT"}
     [ "$(countinworkspace "$home_workspace")" -eq 0 ]
     [ "$(countfloating)" -eq "$NUMBER_OF_TEST_WINDOWS" ]
 
+    # Fetch windows to current workspace and make them tiled.
     run -0 $NIRIUSH flock --title "$TEST_TITLE" --mode tile
     [ "$(countinworkspace)" -eq "$NUMBER_OF_TEST_WINDOWS" ]
     [ "$(countfloating)" -eq 0 ]
 }
 
 # bats test_tags=windo
-@test 'windo matches all test windows' {
+@test 'windo acts on all test windows' {
     [ "$(countfloating)" -eq 0 ]
     run -0 $NIRIUSH windo --title "$TEST_TITLE" move-window-to-floating
     [ "$(countfloating)" -eq "$NUMBER_OF_TEST_WINDOWS" ]
@@ -263,7 +293,7 @@ teardown() {
 }
 
 # bats test_tags=windo
-@test 'windo matches'  {
+@test 'windo matches and acts across workspaces' {
     [ "$NUMBER_OF_TEST_WINDOWS" -lt 2 ] && skip
 
     # Act when all windows are on a single workspace.
@@ -306,4 +336,59 @@ teardown() {
     [ "$(countfloating)" -eq 1 ]
     run -1 $NIRIUSH windo --title "$TEST_TITLE" --focused --tiled move-window-to-tiling
     run -0 $NIRIUSH windo --title "$TEST_TITLE" --focused --floating move-window-to-tiling
+}
+
+# bats test_tags=windo,multiple-outputs
+@test 'windo matches and acts across outputs and workspaces' {
+    [ "$NUMBER_OF_TEST_WINDOWS" -lt 3 ] && skip
+    [ "$NUMBER_OF_OUTPUTS" -lt 2 ] && skip
+
+    # Move the first and last windows to the secondary output, and the scatter to new workspaces.
+    niri msg action move-window-to-monitor "$SECONDARY_OUTPUT" --id "${WINDOW_IDS%% *}"
+    niri msg action move-window-to-monitor "$SECONDARY_OUTPUT" --id "${WINDOW_IDS##* }"
+    niri msg action move-window-to-workspace 255 --window-id "${WINDOW_IDS%% *}"
+    niri msg action move-window-to-workspace 255 --window-id "${WINDOW_IDS##* }"
+    scatter
+
+    # Act on all windows.
+    run -0 $NIRIUSH windo --title "$TEST_TITLE" move-window-to-floating
+    [ "$(countfloating)" -eq "$NUMBER_OF_TEST_WINDOWS" ]
+
+    # Act on a specific output.
+    run -0 $NIRIUSH windo --title "$TEST_TITLE" --output "$SECONDARY_OUTPUT" move-window-to-tiling
+    [ "$(countfloating)" -eq $((NUMBER_OF_TEST_WINDOWS - 2)) ]
+
+    # Act on a specific workspace (by idx) in a specific output.
+    for window_id in $WINDOW_IDS; do
+        local workspace_id
+        workspace_id="$(getwin workspace_id ".id == $window_id")"
+        local workspace_output
+        workspace_output="$(get workspaces output ".id == $workspace_id")"
+        local workspace_idx
+        workspace_idx="$(get workspaces idx ".id == $workspace_id")"
+        if [ "$(countinworkspace "$workspace_id" floating)" -eq 1 ]; then
+            run -0 $NIRIUSH windo --title "$TEST_TITLE" \
+                --output "$workspace_output" --workspace "$workspace_idx" move-window-to-tiling
+            [ "$(countinworkspace "$workspace_id" floating)" -eq 0 ]
+        else
+            run -0 $NIRIUSH windo --title "$TEST_TITLE" \
+                --output "$workspace_output" --workspace "$workspace_idx" move-window-to-floating
+            [ "$(countinworkspace "$workspace_id" floating)" -eq 1 ]
+        fi
+    done
+    [ "$(countfloating)" = 2 ]
+}
+
+# bats test_tags=flock,visual
+@test 'visual test' {
+    niri msg action focus-workspace 255
+    run -0 $NIRIUSH flock --title "$TEST_TITLE" --mode tile fit
+    start_time=$(date +%s)
+    while [ "$(($(date +%s) - start_time))" -lt 5 ]; do
+        for id in $WINDOW_IDS; do
+            [ "$(countinworkspace)" =  "$NUMBER_OF_TEST_WINDOWS" ] || break 2
+            niri msg action focus-window --id "$id"
+            sleep 0.1
+        done
+    done
 }
