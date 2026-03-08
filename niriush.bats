@@ -6,6 +6,21 @@ TESTING_CONFIG_FILE="/tmp/niriush_test_config.kdl"
 TEST_TITLE=niriushtest
 NIRIUSH=./niriu.sh
 
+RED='\033[0;31m'
+YELLOW='\033[0;33m'
+CYAN='\033[0;36m'
+RESET='\033[0m'
+
+log() {
+    local color
+    case "$1" in
+        error) color="$RED"; shift;;
+        warning) color="$YELLOW"; shift;;
+        *) color="$CYAN";;
+    esac
+    echo -e "#$color $*$RESET" >&3
+}
+
 get() {
     local object_type="$1"
     shift
@@ -147,10 +162,10 @@ setup_file() {
     NUMBER_OF_OUTPUTS="${#output_names[@]}"
     export NUMBER_OF_OUTPUTS
     if [ "$NUMBER_OF_OUTPUTS" -lt 1 ]; then
-        echo "# No outputs detected, aborting tests" >&3
+        log error 'No outputs detected, aborting tests'
         exit 1
     elif [ "$NUMBER_OF_OUTPUTS" -lt 2 ]; then
-        echo "# Only one output detected, multi output tests will be skipped" >&3
+        log warning 'Only one output detected, multi output tests will be skipped'
     else
         PRIMARY_OUTPUT="$(niri msg --json focused-output | jq -r '.name')"
         if [ "$PRIMARY_OUTPUT" = "${output_names[0]}" ]; then
@@ -162,13 +177,13 @@ setup_file() {
     fi
 
     [ "$NUMBER_OF_TEST_WINDOWS" -lt 2 ] && \
-        echo "# Running with only $NUMBER_OF_TEST_WINDOWS test windows, some tests will be skipped" >&3
+        log warning "Running with only $NUMBER_OF_TEST_WINDOWS test windows, many tests will be skipped"
     for windo_index in $(seq 1 "$NUMBER_OF_TEST_WINDOWS"); do
         foot -f 'mono:size=32' -T niriushtest sh -c "echo -n '$windo_index'; sleep infinity 3>&-" 3>&- &
         sleep 0.1
     done
     mapfile -t window_ids < <(getwinid | sort -n)
-    echo "# Created ${#window_ids[@]} test windows with IDs: ${window_ids[*]}" >&3
+    log "Created ${#window_ids[@]} test windows with IDs: ${window_ids[*]}"
     # Bats doesn't support arrays as environment variables.
     export WINDOW_IDS="${window_ids[*]}"
 }
@@ -176,7 +191,7 @@ setup_file() {
 teardown_file() {
     windo close-window
     sleep "$(bc <<<"scale=2; 0.1 * $NUMBER_OF_TEST_WINDOWS")"
-    echo "# Returning focus to initial window ID: $INITIAL_WINDOW_ID" >&3
+    log "Returning focus to initial window ID: $INITIAL_WINDOW_ID"
     niri msg action focus-window --id "$INITIAL_WINDOW_ID"
 }
 
@@ -201,7 +216,7 @@ setup() {
             "$(get workspaces idx '.is_focused == true')" \
             --window-id "$id" --focus false
     done
-    [ "$(countinworkspace)" -eq 5 ]
+    [ "$(countinworkspace)" -eq "$NUMBER_OF_TEST_WINDOWS" ]
     [ "$(countfloating)" -eq 0 ]
 }
 
@@ -323,7 +338,7 @@ teardown() {
     echo 'layout { empty-workspace-above-first; }' > "$TESTING_CONFIG_FILE"
     niri msg action load-config-file
     run -0 $NIRIUSH flock --title "$TEST_TITLE" --unfocused --mode scatter up
-    [ "$(getworkspacerank)" -eq 5 ]
+    [ "$(getworkspacerank)" -eq "$NUMBER_OF_TEST_WINDOWS" ]
 }
 
 # bats test_tags=windo
@@ -434,12 +449,12 @@ teardown() {
                 target_output="$PRIMARY_OUTPUT"
         fi
         for direction in right down left up center; do
-            [ "$(countwin)" -eq 5 ] || return 0
+            [ "$(countwin)" -eq "$NUMBER_OF_TEST_WINDOWS" ] || return 0
             run -0 $NIRIUSH flock --title "$TEST_TITLE" --mode float "$direction"
         done
         run -0 $NIRIUSH flock --title "$TEST_TITLE" --mode tile fit
         for id in $WINDOW_IDS; do
-            [ "$(countwin)" -eq 5 ] || return 0
+            [ "$(countwin)" -eq "$NUMBER_OF_TEST_WINDOWS" ] || return 0
             niri msg action focus-window --id "$id"
             sleep 0.1
         done
