@@ -77,21 +77,30 @@ EOF
 error() {
     trap - ERR
 
+    getline() {
+        # Read the file into an array, but only one line starting at the specified line number.
+        # From the start of that line remove the longest suffix of non-whitespace characters
+        # and remove the result from the start of the line, effectively trimming leading whitespace.
+        # Because bash.
+        mapfile -tn1 -s$(($1-1)) line < "$2"
+        echo "${line[0]#"${line[0]%%[![:space:]]*}"}"
+    }
+
     local message="$1"
-    local show_usage="$2"
+    local extra="$2"
     local details
     local level
-    if [ -z "$message" ]; then
-        message="${BASH_SOURCE[0]} failed on line ${BASH_LINENO[0]}"
+    if [ -z "$message" ] || [ "$extra" = trace ]; then
         for (( level=${#FUNCNAME[@]}-1; level; level-- )); do
-            details+="${BASH_SOURCE[level-1]}:${BASH_LINENO[level-1]}(${FUNCNAME[level]}):\n>>> "
-            details+="$(head -n"${BASH_LINENO[level-1]}" "${BASH_SOURCE[level-1]}" | tail -n1 | xargs)\n"
+            details+="${BASH_SOURCE[level-1]}:${BASH_LINENO[level-1]}(${FUNCNAME[level]}): "
+            details+="$(getline ${BASH_LINENO[level-1]} "${BASH_SOURCE[level-1]}")\n"
         done
     fi
 
+    message="${message-${BASH_SOURCE[0]} failed on line ${BASH_LINENO[0]}}"
     echo "niriu.sh error: $message" >&2
     [ "$details" ] && echo -e "$details" >&2
-    [ "$show_usage" ] && usage >&2
+    [ "$extra" = usage ] && usage >&2
     [ "$NOTIFY_ERRORS" ] && notify-send -a 'niriu.sh error' -u critical "$message" ${details+"$details"}
 
     exit 1
@@ -175,7 +184,17 @@ get() {
         filter="$filter | select($1)"
         shift
     done
-    niri msg --json "$object_type" | jq -r "$filter | .$property"
+
+    # A lot of errors can surface here, both from bugs and from usage mistakes, so let's make life easier.
+    trap - ERR
+    set +eo pipefail
+    local query_output
+    if ! query_output="$(niri msg --json "$object_type" | jq -r "$filter | .$property" 2>&1)"; then
+        error "Error getting '$property' of '$object_type' with filter '$filter': $query_output" trace
+    fi
+    trap error ERR
+    set -eo pipefail
+    echo "$query_output"
 }
 
 # A specific getter for the currently focused output.
@@ -324,13 +343,13 @@ flock() {
     local to_window_id
     to_window_id="$(get windows id '.is_focused == true')"
 
-    [ "$to_output_name" ] || to_output_name="$(focused_output)"
+    to_output_name="${to_output_name-$(focused_output)}"
     windo "$window_ids" '--id' '' move-window-to-monitor "$to_output_name"
 
     case "$mode" in
         scatter) scatter "$window_ids" "$to_output_name" "$direction";;
         *)
-            [ "$to_workspace_reference" ] || to_workspace_reference="$(get workspaces name '.is_focused == true')"
+            to_workspace_reference="${to_workspace_reference-$(get workspaces idx '.is_focused == true')}"
             niri msg action focus-monitor "$to_output_name"
             niri msg action focus-workspace "$to_workspace_reference"
 
@@ -549,6 +568,6 @@ niriush() {
 # Only run the script if it's being executed, to allow sourcing.
 # shellcheck disable=SC2317  # This makes semantic sense if you consider sourcing vs executing.
 if ! return 0 2>/dev/null; then
-    set -Eeo pipefail
+    set -eo pipefail
     niriush "$@"
 fi
