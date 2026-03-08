@@ -2,6 +2,7 @@ bats_require_minimum_version 1.5.0
 NUMBER_OF_TEST_WINDOWS="${NUMBER_OF_TEST_WINDOWS:-5}"
 NIRI_CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/niri/config.kdl"
 NIRIUSH_DYNAMIC_CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/niri/niriush.kdl"
+TESTING_CONFIG_FILE="/tmp/niriush_test_config.kdl"
 TEST_TITLE=niriushtest
 NIRIUSH=./niriu.sh
 
@@ -59,6 +60,17 @@ countfloating() {
     echo "$result"
 }
 
+countworkspaces() {
+    local extra_filters=()
+    if [ "$SECONDARY_OUTPUT" ]; then
+        case "$1" in "$PRIMARY_OUTPUT"|"$SECONDARY_OUTPUT")
+            extra_filters+=("output == \"$1\"")
+            shift
+        esac
+    fi
+    getwin workspace_id ${extra_filters+"${extra_filters[@]}"} ${1+"$@"} | sort -u | wc -w
+}
+
 countinworkspace() {
     local result
     local workspace_id
@@ -94,12 +106,26 @@ countinworkspace() {
         "$NIRIUSH ids --title \"$TEST_TITLE\" \
         --workspace $workspace_idx \
         --output \"\$($workspace_output)\" \
-        ${floating_flag+$floating_flag} \
+        ${floating_flag:+$floating_flag} \
     | wc -w \
     ")"
     [ "$niriush_result" -eq "$result" ]
 
     echo "$result"
+}
+
+getworkspacerank() {
+    local rank=1
+    local workspace_idx
+    workspace_idx="$(get workspaces idx '.is_focused == true')"
+    for window_id in $WINDOW_IDS; do
+        local window_workspace_id
+        window_workspace_id="$(getwin workspace_id ".id == $window_id")"
+        local window_workspace_idx
+        window_workspace_idx="$(get workspaces idx ".id == $window_workspace_id")"
+        [ "$window_workspace_idx" -lt "$workspace_idx" ] && rank=$((rank + 1))
+    done
+    echo "$rank"
 }
 
 windo() {
@@ -161,16 +187,15 @@ setup() {
     cp "$NIRIUSH_DYNAMIC_CONFIG_FILE" "$NIRIUSH_DYNAMIC_CONFIG_FILE".bak
 
     # Long animations can cause delays and flakiness in tests, so disable them during testing.
-    local testing_config_file=/tmp/niriush_testing_config.kdl
-    echo 'animations { off; }' > "$testing_config_file"
-    echo "include \"$testing_config_file\"" >> "$NIRI_CONFIG_FILE"
+    echo 'animations { off; }' > "$TESTING_CONFIG_FILE"
+    echo "include \"$TESTING_CONFIG_FILE\"" >> "$NIRI_CONFIG_FILE"
     niri msg action load-config-file
 
     # Initial state: new workspace on the primary output, with all windows tiled and the first focused.
-    [ "$PRIMARY_OUTPUT" ] && niri msg action focus-monitor "$PRIMARY_OUTPUT"
+    [ "$SECONDARY_OUTPUT" ] && niri msg action focus-monitor "$PRIMARY_OUTPUT"
     niri msg action focus-workspace 255
     for id in $WINDOW_IDS; do
-        [ "$PRIMARY_OUTPUT" ] && niri msg action move-window-to-monitor "$PRIMARY_OUTPUT" --id "$id"
+        [ "$SECONDARY_OUTPUT" ] && niri msg action move-window-to-monitor "$PRIMARY_OUTPUT" --id "$id"
         niri msg action move-window-to-tiling --id "$id"
         niri msg action move-window-to-workspace \
             "$(get workspaces idx '.is_focused == true')" \
@@ -228,8 +253,8 @@ teardown() {
     [ "$(grep -cxF "$test_line" "$NIRIUSH_DYNAMIC_CONFIG_FILE")" -eq 0 ]
 }
 
-# bats test_tags=flock
-@test "flock brings windows to the target workspace ${SECONDARY_OUTPUT+and output }in the selected mode" {
+# bats test_tags=flock,multiple-outputs
+@test "flock brings windows to the target workspace ${SECONDARY_OUTPUT:+and output }in the selected mode" {
     [ "$NUMBER_OF_TEST_WINDOWS" -lt 2 ] && skip
 
     # Each window in its own workspace, first window floating, then focus a new empty workspace.
@@ -255,7 +280,7 @@ teardown() {
 
     # Send windows to a new workspace (and optionally output) without changing states.
     run -0 $NIRIUSH flock --title "$TEST_TITLE" --to-workspace 255 \
-        ${SECONDARY_OUTPUT+--to-output "$PRIMARY_OUTPUT"}
+        ${SECONDARY_OUTPUT:+--to-output "$PRIMARY_OUTPUT"}
     [ "$(countfloating)" -eq 1 ]
     [ "$(countinworkspace "$home_workspace")" -eq 0 ]
 
@@ -267,13 +292,13 @@ teardown() {
 
     # Send windows to a new workspace (and optionally output) and make them tiled.
     run -0 $NIRIUSH flock --title "$TEST_TITLE" --mode tile --to-workspace 255 \
-        ${SECONDARY_OUTPUT+--to-output "$PRIMARY_OUTPUT"}
+        ${SECONDARY_OUTPUT:+--to-output "$PRIMARY_OUTPUT"}
     [ "$(countinworkspace "$home_workspace")" -eq 0 ]
     [ "$(countfloating)" -eq 0 ]
 
     # Send windows to a new workspace (and optionally back to the previous output) and make them floating.
     run -0 $NIRIUSH flock --title "$TEST_TITLE" --mode float --to-workspace 255 \
-        ${SECONDARY_OUTPUT+--to-output "$PRIMARY_OUTPUT"}
+        ${SECONDARY_OUTPUT:+--to-output "$PRIMARY_OUTPUT"}
     [ "$(countinworkspace "$home_workspace")" -eq 0 ]
     [ "$(countfloating)" -eq "$NUMBER_OF_TEST_WINDOWS" ]
 
@@ -281,6 +306,24 @@ teardown() {
     run -0 $NIRIUSH flock --title "$TEST_TITLE" --mode tile
     [ "$(countinworkspace)" -eq "$NUMBER_OF_TEST_WINDOWS" ]
     [ "$(countfloating)" -eq 0 ]
+}
+
+# bats test_tags=flock,multiple-outputs
+@test "flock scatters windows to seperate workspaces ${SECONDARY_OUTPUT:+on target output }" {
+    [ "$NUMBER_OF_TEST_WINDOWS" -lt 2 ] && skip
+
+    run -0 $NIRIUSH flock --title "$TEST_TITLE" --mode scatter \
+        ${SECONDARY_OUTPUT+--to-output "$SECONDARY_OUTPUT"}
+    [ "$(countworkspaces ${SECONDARY_OUTPUT+"$SECONDARY_OUTPUT"})" -eq "$NUMBER_OF_TEST_WINDOWS" ]
+
+    run -0 $NIRIUSH flock --title "$TEST_TITLE" --unfocused --mode scatter down
+    [ "$(getworkspacerank)" -eq 1 ]
+
+    # This configuration is required for the `up` direction of `scatter`.
+    echo 'layout { empty-workspace-above-first; }' > "$TESTING_CONFIG_FILE"
+    niri msg action load-config-file
+    run -0 $NIRIUSH flock --title "$TEST_TITLE" --unfocused --mode scatter up
+    [ "$(getworkspacerank)" -eq 5 ]
 }
 
 # bats test_tags=windo
