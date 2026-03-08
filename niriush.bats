@@ -422,14 +422,24 @@ teardown() {
     [ "$(countfloating)" = 2 ]
 }
 
-# bats test_tags=flock,visual
+# bats test_tags=flock,multiple-output,visual
 @test 'visual test' {
+    local target_output
     niri msg action focus-workspace 255
-    run -0 $NIRIUSH flock --title "$TEST_TITLE" --mode tile fit
     start_time=$(date +%s)
     while [ "$(($(date +%s) - start_time))" -lt 5 ]; do
+        if [ "$SECONDARY_OUTPUT" ]; then
+            [ "$target_output" = "$PRIMARY_OUTPUT" ] && \
+                target_output="$SECONDARY_OUTPUT" || \
+                target_output="$PRIMARY_OUTPUT"
+        fi
+        for direction in right down left up center; do
+            [ "$(countwin)" -eq 5 ] || return 0
+            run -0 $NIRIUSH flock --title "$TEST_TITLE" --mode float "$direction"
+        done
+        run -0 $NIRIUSH flock --title "$TEST_TITLE" --mode tile fit
         for id in $WINDOW_IDS; do
-            [ "$(countinworkspace)" =  "$NUMBER_OF_TEST_WINDOWS" ] || break 2
+            [ "$(countwin)" -eq 5 ] || return 0
             niri msg action focus-window --id "$id"
             sleep 0.1
         done
