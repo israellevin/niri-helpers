@@ -156,7 +156,15 @@ Make sure to replace `<full path to your XDG_CONFIG_HOME>` with the actual *full
 
 ## Testing
 
-I use the `test_niriu.sh` script for some basic semi-automatic regression tests.
+Install the [bats](https://github.com/bats-core/bats-core) testing framework and run the tests with:
+
+```sh
+bats ./niriush.bats
+```
+
+Note that the tests run on your niri desktop and may fail if you have any special event triggers (like ned, from this very repo) or if you have any open windows with the title "niriushtest".
+
+The tests are designed not to interfere with the state of the desktop and to return everything to the way it was before, but don't run them if you have something important to lose.
 
 ## niriu.sh Usage
 
