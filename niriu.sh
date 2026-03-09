@@ -343,16 +343,15 @@ flock() {
     local to_window_id
     to_window_id="$(get windows id '.is_focused == true')"
 
-    to_output_name="${to_output_name-$(focused_output)}"
+    [ "$to_output_name" ] || to_output_name="$(focused_output)"
     windo "$window_ids" '--id' '' move-window-to-monitor "$to_output_name"
 
     case "$mode" in
         scatter) scatter "$window_ids" "$to_output_name" "$direction";;
         *)
-            to_workspace_reference="${to_workspace_reference-$(get workspaces idx '.is_focused == true')}"
             niri msg action focus-monitor "$to_output_name"
+            [ "$to_workspace_reference" ] || to_workspace_reference="$(get workspaces idx '.is_focused == true')"
             niri msg action focus-workspace "$to_workspace_reference"
-
             fetch "$window_ids"
 
             if [ "$mode" = tile ]; then
