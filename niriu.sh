@@ -78,14 +78,17 @@ error() {
     trap - ERR
 
     getline() {
+        local line
+        local whitespaces
+        mapfile -tn1 -s$(($1-1)) line < "$2"
+        whitespaces="${line[0]%%[![:space:]]*}"
+        echo "${line[0]#$whitespaces}"
+    }
+
         # Read the file into an array, but only one line starting at the specified line number.
         # From the start of that line remove the longest suffix of non-whitespace characters
         # and remove the result from the start of the line, effectively trimming leading whitespace.
         # Because bash.
-        mapfile -tn1 -s$(($1-1)) line < "$2"
-        echo "${line[0]#"${line[0]%%[![:space:]]*}"}"
-    }
-
     local message="$1"
     local extra="$2"
     local details
@@ -378,19 +381,20 @@ flock() {
     fi
 }
 
-is_in() {
-    subject="$1"
-    shift
-    while [ $# -gt 0 ]; do
-        [ "$subject" = "$1" ] && return 0
-        shift
-    done
-    return 1
-}
-
-# Main entry point.
+# Main entry point - parses arguments and dispatches to appropriate functions.
 
 niriush() {
+
+    is_in() {
+        subject="$1"
+        shift
+        while [ $# -gt 0 ]; do
+            [ "$subject" = "$1" ] && return 0
+            shift
+        done
+        return 1
+    }
+
     local command_name="$1"
     [ "$command_name" ] || error "No command specified" usage
     shift
@@ -568,5 +572,5 @@ niriush() {
 # shellcheck disable=SC2317  # This makes semantic sense if you consider sourcing vs executing.
 if ! return 0 2>/dev/null; then
     set -eo pipefail
-    niriush "$@"
+    niriush "$@" || exit
 fi
