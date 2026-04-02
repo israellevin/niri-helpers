@@ -63,6 +63,9 @@ WORKDIR /ned
 RUN cargo build --release
 RUN cargo strip
 
+# Install wiremix too.
+RUN cargo install wiremix
+
 CMD sleep infinity
 EOF
 }
@@ -108,7 +111,8 @@ make() {
     docker cp niri-builder:/niri/target/release/niri "$build_directory"
     docker cp niri-builder:/xwayland-satellite/target/release/xwayland-satellite "$build_directory"
     docker cp niri-builder:/ned/target/release/ned "$build_directory"
-    docker cp niri-builder:/ned/examples/ "$build_directory/ned_examples/"
+    docker cp niri-builder:/ned/examples/ "$build_directory/ned_examples"
+    docker cp niri-builder:/root/.cargo/bin/wiremix "$build_directory"
     echo Files copied to ./build directory
     docker rm -f niri-builder
 }
