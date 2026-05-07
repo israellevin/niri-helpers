@@ -1,7 +1,8 @@
 bats_require_minimum_version 1.5.0
 NUMBER_OF_TEST_WINDOWS="${NUMBER_OF_TEST_WINDOWS:-5}"
 NIRI_CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/niri/config.kdl"
-NIRIUSH_DYNAMIC_CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/niri/niriush.kdl"
+DYNAMIC_CONFIG_FILE_BASE_NAME="niriush.kdl"
+DYNAMIC_CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/niri/$DYNAMIC_CONFIG_FILE_BASE_NAME"
 TESTING_CONFIG_FILE="/tmp/niriush_test_config.kdl"
 TEST_TITLE=niriushtest
 NIRIUSH=./niriu.sh
@@ -203,7 +204,7 @@ setup() {
     cd "$(dirname "$BATS_TEST_FILENAME")" || exit 1
 
     cp "$NIRI_CONFIG_FILE" "$NIRI_CONFIG_FILE".bak
-    cp "$NIRIUSH_DYNAMIC_CONFIG_FILE" "$NIRIUSH_DYNAMIC_CONFIG_FILE".bak
+    cp "$DYNAMIC_CONFIG_FILE" "$DYNAMIC_CONFIG_FILE".bak
 
     # Long animations can cause delays and flakiness in tests, so disable them during testing.
     echo 'animations { off; }' > "$TESTING_CONFIG_FILE"
@@ -226,7 +227,7 @@ setup() {
 
 teardown() {
     mv "$NIRI_CONFIG_FILE".bak "$NIRI_CONFIG_FILE"
-    mv "$NIRIUSH_DYNAMIC_CONFIG_FILE".bak "$NIRIUSH_DYNAMIC_CONFIG_FILE"
+    mv "$DYNAMIC_CONFIG_FILE".bak "$DYNAMIC_CONFIG_FILE"
     niri msg action load-config-file
 }
 
@@ -247,7 +248,7 @@ teardown() {
 
 # bats test_tags=conf
 @test 'conf manipulates dynamic configuration file' {
-    local include_line="include \"$NIRIUSH_DYNAMIC_CONFIG_FILE\""
+    local include_line="include \"$DYNAMIC_CONFIG_FILE_BASE_NAME\""
     grep -vxF "$include_line" "$NIRI_CONFIG_FILE" > "$NIRI_CONFIG_FILE".tmp
     mv "$NIRI_CONFIG_FILE".tmp "$NIRI_CONFIG_FILE"
     run -1 script -qec "echo n | $NIRIUSH conf --reset" /dev/null
@@ -256,20 +257,20 @@ teardown() {
 
     local test_line='// configuration test line'
     run -0 $NIRIUSH conf --add "$test_line"
-    grep -qxF "$test_line" "$NIRIUSH_DYNAMIC_CONFIG_FILE"
+    grep -qxF "$test_line" "$DYNAMIC_CONFIG_FILE"
     run -0 $NIRIUSH conf --add "$test_line"
-    [ "$(grep -cxF "$test_line" "$NIRIUSH_DYNAMIC_CONFIG_FILE")" -eq 1 ]
+    [ "$(grep -cxF "$test_line" "$DYNAMIC_CONFIG_FILE")" -eq 1 ]
     run -0 $NIRIUSH conf --rm "$test_line"
-    [ "$(grep -cxF "$test_line" "$NIRIUSH_DYNAMIC_CONFIG_FILE")" -eq 0 ]
+    [ "$(grep -cxF "$test_line" "$DYNAMIC_CONFIG_FILE")" -eq 0 ]
     run -0 $NIRIUSH conf --rm "$test_line"
     run -0 $NIRIUSH conf --toggle "$test_line"
-    [ "$(grep -cxF "$test_line" "$NIRIUSH_DYNAMIC_CONFIG_FILE")" -eq 1 ]
+    [ "$(grep -cxF "$test_line" "$DYNAMIC_CONFIG_FILE")" -eq 1 ]
     run -0 $NIRIUSH conf --toggle "$test_line"
-    [ "$(grep -cxF "$test_line" "$NIRIUSH_DYNAMIC_CONFIG_FILE")" -eq 0 ]
+    [ "$(grep -cxF "$test_line" "$DYNAMIC_CONFIG_FILE")" -eq 0 ]
     run -0 $NIRIUSH conf --add "$test_line"
-    [ "$(grep -cxF "$test_line" "$NIRIUSH_DYNAMIC_CONFIG_FILE")" -eq 1 ]
+    [ "$(grep -cxF "$test_line" "$DYNAMIC_CONFIG_FILE")" -eq 1 ]
     run -0 $NIRIUSH conf --rm-re "${test_line:0:5}.*"
-    [ "$(grep -cxF "$test_line" "$NIRIUSH_DYNAMIC_CONFIG_FILE")" -eq 0 ]
+    [ "$(grep -cxF "$test_line" "$DYNAMIC_CONFIG_FILE")" -eq 0 ]
 }
 
 # bats test_tags=flock,multiple-outputs

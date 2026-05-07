@@ -149,10 +149,10 @@ niriu.sh conf --reset
 Or you can add the inclusion line manually to your `config.kdl` if you prefer:
 
 ```kdl
-include "<full path to your XDG_CONFIG_HOME>/niri/niriush.kdl"
+include "niriush.kdl"
 ```
 
-Make sure to replace `<full path to your XDG_CONFIG_HOME>` with the actual *full* path. The script will fail if the inclusion line is not found precisely as expected, so if you choose to add it manually make sure that the path is correct and that the line is formatted exactly as above.
+The script will fail if the inclusion line is not found precisely as expected, so if you choose to add it manually make sure that the line is formatted exactly as above.
 
 ## Testing
 
