@@ -9,7 +9,7 @@ usage() {
     exit 1
 }
 
-dockerfile() {
+cat_dockerfile() {
     cat <<'EOF'
 FROM debian:sid
 
@@ -71,41 +71,26 @@ EOF
 }
 
 make() {
-    local build_flags
+    local build_flags=()
+    local clean
     local branch
     local repo
     local build_directory="./build"
     while [ "$#" -gt 0 ]; do
         case "$1" in
-            clean)
-                build_flags+=" --build-arg NEW_NIRI=$(date +%s)"
-                ;;
-            --branch)
-                [ "$branch" ] && echo "Branch already set to $branch, cannot set to $1" && exit 1
-                shift
-                branch="$1"
-                build_flags+=" --build-arg NIRI_BRANCH=$branch"
-                ;;
-            --repo)
-                [ "$repo" ] && echo "Repo already set to $repo, cannot set to $1" && exit 1
-                shift
-                repo="$1"
-                build_flags+=" --build-arg NIRI_REPO=$repo"
-                ;;
-            --build-directory)
-                shift
-                build_directory="$1"
-                ;;
-            *)
-                echo "Unknown argument: $1"
-                usage
-                ;;
+            clean) clean=true;;
+            --branch) shift; branch="$1";;
+            --repo) shift; repo="$1";;
+            --build-directory) shift; build_directory="$1";;
+            *) echo "Unknown argument: $1"; usage;;
         esac
         shift
     done
+    [ "$clean" ] && build_flags+=('--build-arg' "NEW_NIRI=$(date +%s)")
+    [ "$branch" ] && build_flags+=('--build-arg' "NIRI_BRANCH=$branch")
+    [ "$repo" ] && build_flags+=('--build-arg' "NIRI_REPO=$repo")
 
-    # shellcheck disable=SC2086  # Allow word splitting for build_flags
-    dockerfile | docker build . -t niri-builder $build_flags -f -
+    cat_dockerfile | docker build . -t niri-builder "${build_flags[@]}" -f -
     docker run --rm --name niri-builder -dp 5020:80 niri-builder
     mkdir -p "$build_directory"
     docker cp niri-builder:/niri/target/release/niri "$build_directory"
